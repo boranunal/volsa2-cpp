@@ -7,6 +7,7 @@
 
 #include "mainwindow.hpp"
 #include "upload_dialog.hpp"
+#include "sample_chopper_dialog.hpp"
 #include "volsa2/audio.hpp"
 
 #include <QVBoxLayout>
@@ -188,6 +189,11 @@ void MainWindow::setupUi() {
     btn_upload->setStyleSheet("QPushButton { border-color: #f07828; color: #ff9944; }");
     connect(btn_upload, &QPushButton::clicked, this, &MainWindow::onUploadClicked);
     action_bar->addWidget(btn_upload);
+
+    auto* btn_chop = new QPushButton("Chop / Slice...");
+    btn_chop->setStyleSheet("QPushButton { border-color: #00b4d8; color: #48cae4; }");
+    connect(btn_chop, &QPushButton::clicked, this, &MainWindow::onChopClicked);
+    action_bar->addWidget(btn_chop);
 
     auto* btn_download = new QPushButton("Download Selected...");
     connect(btn_download, &QPushButton::clicked, this, &MainWindow::onDownloadClicked);
@@ -439,6 +445,7 @@ void MainWindow::onTableCustomContextMenu(const QPoint& pos) {
     menu.addAction("▶ Play Preview", this, &MainWindow::onPlayClicked);
     menu.addSeparator();
     menu.addAction("Upload Sample to Slot...", this, &MainWindow::onUploadClicked);
+    menu.addAction("Chop / Slice Sample...", this, &MainWindow::onChopClicked);
     menu.addAction("Download to WAV...", this, &MainWindow::onDownloadClicked);
     menu.addAction("Erase Slot", this, &MainWindow::onDeleteClicked);
 
@@ -497,6 +504,85 @@ void MainWindow::onUploadClicked() {
                                   Q_ARG(int, slot), Q_ARG(QString, name),
                                   Q_ARG(std::vector<int16_t>, data));
     }
+}
+
+void MainWindow::onChopClicked() {
+    int slot = selectedSlot();
+    std::vector<int16_t> samples;
+    QString name;
+
+    if (slot >= 0 && !slots_[static_cast<size_t>(slot)].is_empty()) {
+        const auto& h = slots_[static_cast<size_t>(slot)];
+        name = QString::fromStdString(h.name.empty() ? ("sample_" + std::to_string(slot)) : h.name);
+        auto it = sample_cache_.find(slot);
+        if (it != sample_cache_.end()) {
+            samples = it->second;
+        } else if (slot == active_preview_slot_ && !current_samples_.empty()) {
+            samples = current_samples_;
+        } else {
+            statusBar()->showMessage(QString("Loading sample %1 for chopping...").arg(slot));
+            operation_progress_->show();
+            QMetaObject::invokeMethod(worker_, "fetchSample", Qt::QueuedConnection, Q_ARG(int, slot));
+            QMessageBox::information(this, "Chop / Slice",
+                QString("Sample data for slot %1 is being downloaded from device. Please click 'Chop / Slice...' again in a moment once loaded.").arg(slot));
+            return;
+        }
+    } else {
+        auto res = QMessageBox::question(this, "Chop / Slice",
+            "No occupied slot is selected. Would you like to select an audio file from your computer to chop/slice?",
+            QMessageBox::Yes | QMessageBox::No);
+        if (res != QMessageBox::Yes) {
+            return;
+        }
+
+        QString file_path = QFileDialog::getOpenFileName(this, "Select Audio File to Chop / Slice",
+            QString(), "Audio Files (*.wav *.aiff *.aif *.flac *.ogg)");
+        if (file_path.isEmpty()) {
+            return;
+        }
+
+        try {
+            samples = volsa2::load_and_convert_audio(file_path.toStdString(), volsa2::MonoMode::Mid);
+            name = QFileInfo(file_path).baseName();
+            slot = -1;
+        } catch (const std::exception& e) {
+            QMessageBox::critical(this, "Audio Error", QString("Failed to load audio file:\n%1").arg(e.what()));
+            return;
+        }
+    }
+
+    if (samples.empty()) {
+        QMessageBox::warning(this, "Chop / Slice", "No audio data available.");
+        return;
+    }
+
+    SampleChopperDialog dlg(slots_, samples, name, slot, this);
+
+    connect(&dlg, &SampleChopperDialog::cropAndSaveRequested, this, [this](int target_slot, const QString& sample_name, const std::vector<int16_t>& audio) {
+        if (target_slot >= 0) {
+            sample_cache_.erase(target_slot);
+            operation_progress_->show();
+            statusBar()->showMessage(QString("Uploading cropped audio to slot %1...").arg(target_slot));
+            QMetaObject::invokeMethod(worker_, "uploadSample", Qt::QueuedConnection,
+                                      Q_ARG(int, target_slot), Q_ARG(QString, sample_name),
+                                      Q_ARG(std::vector<int16_t>, audio));
+        }
+    });
+
+    connect(&dlg, &SampleChopperDialog::batchExportRequested, this, [this](int start_slot, const QString& base_name, const std::vector<std::vector<int16_t>>& slices) {
+        for (size_t i = 0; i < slices.size(); ++i) {
+            int target_slot = start_slot + static_cast<int>(i);
+            QString slice_name = QString("%1_%2").arg(base_name.left(18)).arg(i + 1);
+            sample_cache_.erase(target_slot);
+            QMetaObject::invokeMethod(worker_, "uploadSample", Qt::QueuedConnection,
+                                      Q_ARG(int, target_slot), Q_ARG(QString, slice_name),
+                                      Q_ARG(std::vector<int16_t>, slices[i]));
+        }
+        operation_progress_->show();
+        statusBar()->showMessage(QString("Batch exporting %1 slices starting from slot %2...").arg(slices.size()).arg(start_slot));
+    });
+
+    dlg.exec();
 }
 
 void MainWindow::onDownloadClicked() {

@@ -1,9 +1,10 @@
 /**
  * @file upload_dialog.hpp
- * @brief Modal dialog for sample auditioning, channel selection, format conversion, and upload.
- * @details Provides file browsing, automated metadata extraction, waveform preview of the
- *          resampled 31.25 kHz signal, audition playback via QAudioSink, target slot selection
- *          with auto-empty detection, and overwrite/backup safeguards.
+ * @brief Modal dialog for sample auditioning, channel selection, format conversion,
+ *        sample chopping/trimming, and upload.
+ * @details Provides file browsing, automated metadata extraction, waveform preview with
+ *          interactive crop handles, silence auto-trimming, audition playback of cropped audio,
+ *          target slot selection with auto-empty detection, and overwrite/backup safeguards.
  * @author Volsa2 Project Team
  * @date 2026
  */
@@ -13,6 +14,7 @@
 #include "waveform_widget.hpp"
 #include "audio_player.hpp"
 #include "volsa2/proto.hpp"
+#include "volsa2/sample_chopper.hpp"
 
 #include <QDialog>
 #include <QLineEdit>
@@ -26,7 +28,7 @@
 
 /**
  * @class UploadDialog
- * @brief Interactive modal dialog guiding the user through sample conversion and upload.
+ * @brief Interactive modal dialog guiding the user through sample conversion, chopping, and upload.
  */
 class UploadDialog : public QDialog {
     Q_OBJECT
@@ -57,10 +59,10 @@ public:
     QString sampleName() const;
 
     /**
-     * @brief Returns the converted 16-bit 31.25 kHz mono PCM audio samples.
-     * @return Const reference to the sample vector.
+     * @brief Returns the cropped 16-bit 31.25 kHz mono PCM audio samples ready for device upload.
+     * @return Contiguous vector of PCM samples.
      */
-    const std::vector<int16_t>& audioData() const { return converted_samples_; }
+    std::vector<int16_t> audioData() const;
 
     /**
      * @brief Indicates whether the user opted to back up the current slot's sample before overwriting.
@@ -74,9 +76,15 @@ private slots:
     void onSlotChanged(int slot);
     void onFindEmptySlot();
     void onPlayPreview();
+    void onWaveformSelectionChanged(size_t start, size_t end);
+    void onCropSpinChanged();
+    void onAutoTrimSilence();
+    void onResetCrop();
     void updateFileInfoAndConversion();
 
 private:
+    void updateCropReadout();
+
     QLineEdit* file_path_edit_{nullptr};     ///< Text input showing path to selected audio file.
     QSpinBox* slot_spin_{nullptr};           ///< Target slot selector (0-199).
     QPushButton* btn_find_empty_{nullptr};   ///< Button to automatically select the first empty slot.
@@ -85,11 +93,19 @@ private:
     QLabel* info_label_{nullptr};            ///< Label displaying source vs target audio specifications.
     QLabel* overwrite_warning_{nullptr};     ///< Warning message shown when target slot is occupied.
     QCheckBox* backup_checkbox_{nullptr};    ///< Checkbox enabling backup prior to overwrite.
-    WaveformWidget* waveform_widget_{nullptr};///< Interactive preview of converted audio waveform.
-    QPushButton* btn_play_{nullptr};         ///< Button to audition the converted audio.
+    WaveformWidget* waveform_widget_{nullptr};///< Interactive preview of converted audio waveform with crop handles.
+
+    // Chopping controls
+    QSpinBox* start_crop_spin_{nullptr};     ///< Crop start sample index.
+    QSpinBox* end_crop_spin_{nullptr};       ///< Crop end sample index.
+    QPushButton* btn_auto_trim_{nullptr};    ///< Auto-trim dead air button.
+    QPushButton* btn_reset_crop_{nullptr};   ///< Reset crop button.
+    QLabel* crop_info_label_{nullptr};       ///< Cropped duration / sample count readout.
+
+    QPushButton* btn_play_{nullptr};         ///< Button to audition the cropped audio.
     QPushButton* btn_upload_{nullptr};       ///< Dialog accept / upload trigger button.
 
     std::vector<volsa2::SampleHeader> current_slots_; ///< Device slot cache for overwrite detection.
-    std::vector<int16_t> converted_samples_;          ///< Processed 31.25 kHz PCM samples.
+    std::vector<int16_t> converted_samples_;          ///< Processed 31.25 kHz mono PCM samples before cropping.
     AlsaAudioPlayer audio_player_{this};              ///< Native ALSA PCM audition player.
 };

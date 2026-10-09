@@ -17,6 +17,7 @@ add_library(volsa2_core STATIC
     src/proto.cpp
     src/audio.cpp
     src/device.cpp
+    src/sample_chopper.cpp
 )
 
 target_include_directories(volsa2_core PUBLIC
@@ -55,6 +56,10 @@ add_test(NAME test_audio COMMAND test_audio)
 add_executable(test_proto_comprehensive tests/test_proto_comprehensive.cpp)
 target_link_libraries(test_proto_comprehensive PRIVATE volsa2_core)
 add_test(NAME test_proto_comprehensive COMMAND test_proto_comprehensive)
+
+add_executable(test_sample_chopper tests/test_sample_chopper.cpp)
+target_link_libraries(test_sample_chopper PRIVATE volsa2_core)
+add_test(NAME test_sample_chopper COMMAND test_sample_chopper)
 
 # GUI
 option(BUILD_GUI "Build Qt GUI application" ON)

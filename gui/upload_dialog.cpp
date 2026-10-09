@@ -1,12 +1,13 @@
 /**
  * @file upload_dialog.cpp
- * @brief Implementation of sample upload wizard dialog.
+ * @brief Implementation of sample upload wizard dialog with interactive sample chopping.
  * @author Volsa2 Project Team
  * @date 2026
  */
 
 #include "upload_dialog.hpp"
 #include "volsa2/audio.hpp"
+#include "volsa2/sample_chopper.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -21,10 +22,10 @@ UploadDialog::UploadDialog(const std::vector<volsa2::SampleHeader>& current_slot
                            QWidget* parent)
     : QDialog(parent), current_slots_(current_slots) {
     setWindowTitle("Upload Sample to Volca Sample 2");
-    setMinimumWidth(600);
+    setMinimumWidth(680);
 
     auto* main_layout = new QVBoxLayout(this);
-    main_layout->setSpacing(12);
+    main_layout->setSpacing(10);
 
     auto* grid = new QGridLayout();
     grid->setSpacing(8);
@@ -84,19 +85,62 @@ UploadDialog::UploadDialog(const std::vector<volsa2::SampleHeader>& current_slot
     backup_checkbox_->hide();
     main_layout->addWidget(backup_checkbox_);
 
-    // Waveform Preview
-    main_layout->addWidget(new QLabel("Converted Audio Preview (31.25 kHz Mono):"));
+    // Waveform Preview with Crop Handles
+    main_layout->addWidget(new QLabel("Converted Audio & Region Chopping (Drag [S] / [E] handles to crop):"));
     waveform_widget_ = new WaveformWidget(this);
+    waveform_widget_->setMinimumHeight(100);
     main_layout->addWidget(waveform_widget_);
+
+    // Chopping controls bar
+    auto* chop_bar = new QHBoxLayout();
+    chop_bar->addWidget(new QLabel("Crop Start:"));
+    start_crop_spin_ = new QSpinBox();
+    start_crop_spin_->setRange(0, 10000000);
+    start_crop_spin_->setSingleStep(256);
+    chop_bar->addWidget(start_crop_spin_);
+
+    chop_bar->addWidget(new QLabel("Crop End:"));
+    end_crop_spin_ = new QSpinBox();
+    end_crop_spin_->setRange(0, 10000000);
+    end_crop_spin_->setSingleStep(256);
+    chop_bar->addWidget(end_crop_spin_);
+
+    btn_auto_trim_ = new QPushButton("Auto-Trim Silence");
+    btn_auto_trim_->setToolTip("Scans audio and crops leading/trailing silence automatically.");
+    connect(btn_auto_trim_, &QPushButton::clicked, this, &UploadDialog::onAutoTrimSilence);
+    chop_bar->addWidget(btn_auto_trim_);
+
+    btn_reset_crop_ = new QPushButton("Reset Crop");
+    connect(btn_reset_crop_, &QPushButton::clicked, this, &UploadDialog::onResetCrop);
+    chop_bar->addWidget(btn_reset_crop_);
+
+    chop_bar->addStretch();
+    main_layout->addLayout(chop_bar);
+
+    crop_info_label_ = new QLabel("");
+    crop_info_label_->setStyleSheet("color: #66ccaa; font-weight: bold;");
+    main_layout->addWidget(crop_info_label_);
 
     // Audition playback button
     auto* preview_bar = new QHBoxLayout();
     btn_play_ = new QPushButton("Play Preview");
     btn_play_->setEnabled(false);
     connect(btn_play_, &QPushButton::clicked, this, &UploadDialog::onPlayPreview);
-    connect(&audio_player_, &AlsaAudioPlayer::positionChanged, waveform_widget_, &WaveformWidget::setPlayheadPosition);
+
+    connect(&audio_player_, &AlsaAudioPlayer::positionChanged, this, [this](double norm_pos) {
+        if (converted_samples_.empty()) return;
+        size_t s = static_cast<size_t>(start_crop_spin_->value());
+        size_t e = static_cast<size_t>(end_crop_spin_->value());
+        if (e <= s) {
+            waveform_widget_->setPlayheadPosition(norm_pos);
+            return;
+        }
+        double full_norm = (static_cast<double>(s) + norm_pos * (e - s)) / converted_samples_.size();
+        waveform_widget_->setPlayheadPosition(full_norm);
+    });
     connect(&audio_player_, &AlsaAudioPlayer::playbackFinished, this, [this]() {
         btn_play_->setText("Play Preview");
+        waveform_widget_->setPlayheadPosition(-1.0);
     });
     preview_bar->addWidget(btn_play_);
     preview_bar->addStretch();
@@ -110,6 +154,7 @@ UploadDialog::UploadDialog(const std::vector<volsa2::SampleHeader>& current_slot
     btn_upload_ = new QPushButton("Upload");
     btn_upload_->setEnabled(false);
     btn_upload_->setDefault(true);
+    btn_upload_->setStyleSheet("background-color: #f07828; color: white; font-weight: bold; padding: 6px 16px;");
     connect(btn_upload_, &QPushButton::clicked, this, &QDialog::accept);
 
     btn_box->addWidget(cancel_btn);
@@ -119,6 +164,9 @@ UploadDialog::UploadDialog(const std::vector<volsa2::SampleHeader>& current_slot
     connect(slot_spin_, QOverload<int>::of(&QSpinBox::valueChanged), this, &UploadDialog::onSlotChanged);
     connect(mono_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &UploadDialog::onMonoModeChanged);
     connect(file_path_edit_, &QLineEdit::textChanged, this, &UploadDialog::updateFileInfoAndConversion);
+    connect(waveform_widget_, &WaveformWidget::selectionChanged, this, &UploadDialog::onWaveformSelectionChanged);
+    connect(start_crop_spin_, QOverload<int>::of(&QSpinBox::valueChanged), this, &UploadDialog::onCropSpinChanged);
+    connect(end_crop_spin_, QOverload<int>::of(&QSpinBox::valueChanged), this, &UploadDialog::onCropSpinChanged);
 
     if (initial_slot >= 0) {
         slot_spin_->setValue(initial_slot);
@@ -139,6 +187,13 @@ int UploadDialog::targetSlot() const {
 
 QString UploadDialog::sampleName() const {
     return name_edit_->text().trimmed();
+}
+
+std::vector<int16_t> UploadDialog::audioData() const {
+    if (converted_samples_.empty()) return {};
+    size_t s = static_cast<size_t>(start_crop_spin_->value());
+    size_t e = static_cast<size_t>(end_crop_spin_->value());
+    return volsa2::crop_audio(converted_samples_, s, e, true);
 }
 
 bool UploadDialog::backupRequested() const {
@@ -185,9 +240,73 @@ void UploadDialog::onMonoModeChanged() {
     updateFileInfoAndConversion();
 }
 
-/**
- * @brief Reads the selected audio file, updates metadata labels, and renders the converted waveform.
- */
+void UploadDialog::onWaveformSelectionChanged(size_t start, size_t end) {
+    start_crop_spin_->blockSignals(true);
+    end_crop_spin_->blockSignals(true);
+    start_crop_spin_->setValue(static_cast<int>(start));
+    end_crop_spin_->setValue(static_cast<int>(end));
+    start_crop_spin_->blockSignals(false);
+    end_crop_spin_->blockSignals(false);
+    updateCropReadout();
+}
+
+void UploadDialog::onCropSpinChanged() {
+    int s = start_crop_spin_->value();
+    int e = end_crop_spin_->value();
+    if (s > e) {
+        start_crop_spin_->blockSignals(true);
+        start_crop_spin_->setValue(e);
+        start_crop_spin_->blockSignals(false);
+        s = e;
+    }
+    waveform_widget_->setSelection(static_cast<size_t>(s), static_cast<size_t>(e));
+    updateCropReadout();
+}
+
+void UploadDialog::onAutoTrimSilence() {
+    if (converted_samples_.empty()) return;
+    auto [start_bound, end_bound] = volsa2::find_silence_bounds(converted_samples_, -48.0);
+    waveform_widget_->setSelection(start_bound, end_bound);
+    start_crop_spin_->blockSignals(true);
+    end_crop_spin_->blockSignals(true);
+    start_crop_spin_->setValue(static_cast<int>(start_bound));
+    end_crop_spin_->setValue(static_cast<int>(end_bound));
+    start_crop_spin_->blockSignals(false);
+    end_crop_spin_->blockSignals(false);
+    updateCropReadout();
+}
+
+void UploadDialog::onResetCrop() {
+    if (converted_samples_.empty()) return;
+    waveform_widget_->clearSelection();
+    start_crop_spin_->blockSignals(true);
+    end_crop_spin_->blockSignals(true);
+    start_crop_spin_->setValue(0);
+    end_crop_spin_->setValue(static_cast<int>(converted_samples_.size()));
+    start_crop_spin_->blockSignals(false);
+    end_crop_spin_->blockSignals(false);
+    updateCropReadout();
+}
+
+void UploadDialog::updateCropReadout() {
+    if (converted_samples_.empty()) {
+        crop_info_label_->setText("");
+        return;
+    }
+    size_t s = static_cast<size_t>(start_crop_spin_->value());
+    size_t e = static_cast<size_t>(end_crop_spin_->value());
+    size_t crop_len = (e > s) ? (e - s) : 0;
+    double crop_sec = static_cast<double>(crop_len) / volsa2::VOLCA_SAMPLERATE;
+    double orig_sec = static_cast<double>(converted_samples_.size()) / volsa2::VOLCA_SAMPLERATE;
+    crop_info_label_->setText(
+        QString("Cropped: %1 samples (%2s) of %3 samples (%4s)")
+            .arg(crop_len)
+            .arg(QString::number(crop_sec, 'f', 2))
+            .arg(converted_samples_.size())
+            .arg(QString::number(orig_sec, 'f', 2))
+    );
+}
+
 void UploadDialog::updateFileInfoAndConversion() {
     QString file_path = file_path_edit_->text().trimmed();
     if (file_path.isEmpty() || !QFileInfo::exists(file_path)) {
@@ -196,6 +315,7 @@ void UploadDialog::updateFileInfoAndConversion() {
         btn_upload_->setEnabled(false);
         btn_play_->setEnabled(false);
         converted_samples_.clear();
+        updateCropReadout();
         return;
     }
 
@@ -210,6 +330,16 @@ void UploadDialog::updateFileInfoAndConversion() {
         converted_samples_ = volsa2::load_and_convert_audio(file_path.toStdString(), mode);
 
         waveform_widget_->setAudioData(converted_samples_, volsa2::VOLCA_SAMPLERATE);
+
+        start_crop_spin_->blockSignals(true);
+        end_crop_spin_->blockSignals(true);
+        start_crop_spin_->setRange(0, static_cast<int>(converted_samples_.size()));
+        end_crop_spin_->setRange(0, static_cast<int>(converted_samples_.size()));
+        start_crop_spin_->setValue(0);
+        end_crop_spin_->setValue(static_cast<int>(converted_samples_.size()));
+        start_crop_spin_->blockSignals(false);
+        end_crop_spin_->blockSignals(false);
+        updateCropReadout();
 
         double src_dur = info.duration_seconds;
         double dest_dur = static_cast<double>(converted_samples_.size()) / volsa2::VOLCA_SAMPLERATE;
@@ -230,20 +360,20 @@ void UploadDialog::updateFileInfoAndConversion() {
         converted_samples_.clear();
         btn_upload_->setEnabled(false);
         btn_play_->setEnabled(false);
+        updateCropReadout();
     }
 }
 
-/**
- * @brief Auditions the converted audio buffer using AlsaAudioPlayer.
- */
 void UploadDialog::onPlayPreview() {
-    if (converted_samples_.empty()) return;
+    auto data = audioData();
+    if (data.empty()) return;
 
     if (audio_player_.isPlaying()) {
         audio_player_.stop();
         btn_play_->setText("Play Preview");
+        waveform_widget_->setPlayheadPosition(-1.0);
     } else {
         btn_play_->setText("Stop Preview");
-        audio_player_.play(converted_samples_, volsa2::VOLCA_SAMPLERATE, 0.0);
+        audio_player_.play(data, volsa2::VOLCA_SAMPLERATE, 0.0);
     }
 }

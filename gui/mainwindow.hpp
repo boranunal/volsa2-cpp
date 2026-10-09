@@ -73,6 +73,7 @@ private slots:
 
     // Sample operations
     void onUploadClicked();
+    void onChopClicked();
     void onDownloadClicked();
     void onDeleteClicked();
     void onExportAllClicked();

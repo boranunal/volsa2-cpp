@@ -12,6 +12,8 @@ add_executable(volsa2-gui
     waveform_widget.cpp
     upload_dialog.hpp
     upload_dialog.cpp
+    sample_chopper_dialog.hpp
+    sample_chopper_dialog.cpp
     audio_player.hpp
     audio_player.cpp
 )
