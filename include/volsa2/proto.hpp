@@ -443,4 +443,75 @@ struct SampleData {
     static SampleData parse(std::span<const uint8_t> slice);
 };
 
+/**
+ * @struct PatternDumpRequest
+ * @brief Outgoing request to download sequencer pattern data for a specific pattern slot.
+ * @details Format: [0xF0, 0x42, 0x3g, 0x00, 0x01, 0x2D, 0x1D, pattern_no, 0xF7] (9 bytes).
+ */
+struct PatternDumpRequest {
+    uint8_t channel{0};    ///< Target device global MIDI channel.
+    uint8_t pattern_no{0}; ///< Pattern slot number (0-15).
+
+    /**
+     * @brief Serializes the pattern dump request.
+     * @return 9-byte SysEx message.
+     */
+    std::vector<uint8_t> encode() const {
+        ExtendedKorgSysEx header{channel};
+        std::vector<uint8_t> msg = header.encode();
+        msg.push_back(0x1D);
+        msg.push_back(pattern_no & 0x7F);
+        msg.push_back(EOX);
+        return msg;
+    }
+};
+
+/**
+ * @struct PatternData
+ * @brief Volca Sample 2 sequencer pattern payload containing sequence steps, part parameters, and motion sequences.
+ * @details Format in SysEx:
+ *          - Header: [0xF0, 0x42, 0x3g, 0x00, 0x01, 0x2D, 0x4D, pattern_no] (8 bytes)
+ *          - Payload: 9,070 7-bit bytes (encoding 7,936 bytes 8-bit unshielded data)
+ *          - Terminator: [0xF7]
+ *          Total SysEx message length: 9,079 bytes (0x2377).
+ *          Decoded binary data is exactly 7,936 bytes (0x1F00), starting with 'PTST' magic bytes
+ *          and containing the pattern name at offset 16 (up to 48 bytes null-padded).
+ */
+struct PatternData {
+    static constexpr size_t RAW_PATTERN_SIZE = 7936;   ///< Exact unshielded binary size (0x1F00).
+    static constexpr size_t ENCODED_7BIT_SIZE = 9070;  ///< Number of 7-bit bytes in SysEx payload.
+    static constexpr size_t SYSEX_MESSAGE_SIZE = 9079; ///< Total size of complete SysEx frame (0x2377).
+    static constexpr size_t MAX_PATTERNS = 16;         ///< Total patterns on device (0-15).
+    static constexpr size_t NAME_OFFSET = 16;          ///< Byte offset of pattern name in raw binary.
+    static constexpr size_t NAME_MAX_LEN = 48;         ///< Maximum length of pattern name string.
+
+    uint8_t pattern_no{0};          ///< Pattern slot index (0-15).
+    std::string name;               ///< Pattern name string (from offset 16).
+    std::vector<uint8_t> raw_data;  ///< Exactly 7,936 bytes of raw pattern binary data.
+
+    /**
+     * @brief Creates a PatternData instance, optionally formatting the raw binary.
+     * @param pattern_no Pattern slot index (0-15).
+     * @param name Desired pattern name.
+     * @param raw Raw 7,936-byte buffer (if empty, an initialized buffer with 'PTST' magic is created).
+     * @return Initialized PatternData.
+     */
+    static PatternData create(uint8_t pattern_no, const std::string& name = "", std::vector<uint8_t> raw = {});
+
+    /**
+     * @brief Serializes the pattern into a complete SysEx message (0x4D).
+     * @param channel Target device global MIDI channel.
+     * @return 9,079-byte SysEx message.
+     */
+    std::vector<uint8_t> encode(uint8_t channel) const;
+
+    /**
+     * @brief Parses an incoming PatternData SysEx message (0x4D).
+     * @param slice Raw SysEx buffer (must be at least 9,079 bytes).
+     * @return Parsed PatternData.
+     * @throws std::runtime_error on message size, header, or decoding error.
+     */
+    static PatternData parse(std::span<const uint8_t> slice);
+};
+
 } // namespace volsa2

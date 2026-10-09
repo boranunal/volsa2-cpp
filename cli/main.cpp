@@ -9,6 +9,7 @@
 
 #include "volsa2/device.hpp"
 #include "volsa2/audio.hpp"
+#include "volsa2/package.hpp"
 
 #include <iostream>
 #include <string>
@@ -31,7 +32,9 @@ void print_help(const char* prog) {
               << "  download, dl <slot> [-o path] Download sample from device slot (default: ./\n"
               << "  upload, up <file> [slot] [-m mode] [-o path] [--dry-run]\n"
               << "                             Upload audio file to device slot (mode: mid, left, right, side)\n"
-              << "  remove, rm <slot> [-p]     Remove sample at slot (-p to print name)\n\n"
+              << "  remove, rm <slot> [-p]     Remove sample at slot (-p to print name)\n"
+              << "  download-package, pkg-dl <file.ivlcsplpreset> [--name <name>] [--author <author>]\n"
+              << "                             Download complete package (all 16 patterns and 200 samples)\n\n"
               << "Options:\n"
               << "  -c, --cooldown <ms>        Chunk cooldown in ms (default: 10)\n"
               << "  -h, --help                 Print help information\n";
@@ -290,6 +293,74 @@ int main(int argc, char* argv[]) {
 
             device.delete_sample(slot);
             std::cout << "Removed sample " << name_str << "at slot " << static_cast<int>(slot) << "\n";
+        }
+        else if (cmd == "download-package" || cmd == "pkg-dl") {
+            if (arg_idx >= argc) {
+                std::cerr << "Error: download-package requires <output_file.ivlcsplpreset>\n";
+                return 1;
+            }
+            fs::path out_file = argv[arg_idx++];
+            if (out_file.extension() != ".ivlcsplpreset") {
+                out_file.replace_extension(".ivlcsplpreset");
+            }
+
+            std::string preset_name = out_file.stem().string();
+            std::string author_name = "";
+
+            for (; arg_idx < argc; ++arg_idx) {
+                std::string a = argv[arg_idx];
+                if ((a == "-n" || a == "--name") && arg_idx + 1 < argc) {
+                    preset_name = argv[++arg_idx];
+                } else if ((a == "-a" || a == "--author") && arg_idx + 1 < argc) {
+                    author_name = argv[++arg_idx];
+                }
+            }
+
+            device.connect();
+            std::cout << "Connected to Volca Sample 2 (Channel " << static_cast<int>(device.channel().as_u8())
+                      << ", Firmware " << device.version().to_string() << ")\n";
+
+            auto pkg = volsa2::PackageData::create_default(preset_name, author_name);
+
+            // Step 1: Download 16 patterns
+            std::cout << "[1/4] Downloading 16 patterns from device...\n";
+            for (uint8_t i = 0; i < volsa2::PatternData::MAX_PATTERNS; ++i) {
+                std::cout << "\r  Pattern " << static_cast<int>(i + 1) << "/16..." << std::flush;
+                auto pat = device.get_pattern(i);
+                pkg.programs[i].pattern = std::move(pat);
+            }
+            std::cout << "\r  Downloaded all 16 patterns successfully.    \n";
+
+            // Step 2: Download 200 sample headers
+            std::cout << "[2/4] Scanning 200 sample headers...\n";
+            std::vector<uint8_t> non_empty_slots;
+            for (uint8_t i = 0; i < 200; ++i) {
+                if (i % 20 == 0 || i == 199) {
+                    std::cout << "\r  Scanning slots " << static_cast<int>(i + 1) << "/200..." << std::flush;
+                }
+                auto h = device.get_sample_header(i);
+                pkg.samples[i].header = h;
+                if (!h.is_empty()) {
+                    non_empty_slots.push_back(i);
+                }
+            }
+            std::cout << "\r  Found " << non_empty_slots.size() << " active samples across 200 slots.      \n";
+
+            // Step 3: Download audio data for non-empty samples
+            std::cout << "[3/4] Downloading audio PCM data for " << non_empty_slots.size() << " samples...\n";
+            for (size_t idx = 0; idx < non_empty_slots.size(); ++idx) {
+                uint8_t slot = non_empty_slots[idx];
+                std::cout << "\r  Downloading sample " << (idx + 1) << "/" << non_empty_slots.size()
+                          << " (slot " << static_cast<int>(slot) << ": \"" << pkg.samples[slot].header.name << "\")..." << std::flush;
+                auto sdata = device.get_sample(slot);
+                pkg.samples[slot].data = std::move(sdata);
+            }
+            std::cout << "\r  Finished downloading audio for all active samples.                    \n";
+
+            // Step 4: Write .ivlcsplpreset package
+            std::cout << "[4/4] Packing into " << out_file << "...\n";
+            volsa2::save_package(out_file, pkg);
+            std::cout << "Done! Package saved successfully (" << fs::file_size(out_file) << " bytes).\n";
         }
         else {
             std::cerr << "Unknown command: " << cmd << "\n";

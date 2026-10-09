@@ -21,6 +21,7 @@
 #include <QMenu>
 #include <QStatusBar>
 #include <QFileInfo>
+#include <QDialogButtonBox>
 #include <cmath>
 #include <algorithm>
 
@@ -207,6 +208,11 @@ void MainWindow::setupUi() {
     auto* btn_export_all = new QPushButton("Export All Occupied...");
     connect(btn_export_all, &QPushButton::clicked, this, &MainWindow::onExportAllClicked);
     action_bar->addWidget(btn_export_all);
+
+    auto* btn_download_pkg = new QPushButton("Download Package (.ivlcsplpreset)...");
+    btn_download_pkg->setStyleSheet("QPushButton { border-color: #7209b7; color: #c77dff; }");
+    connect(btn_download_pkg, &QPushButton::clicked, this, &MainWindow::onDownloadPackageClicked);
+    action_bar->addWidget(btn_download_pkg);
 
     action_bar->addStretch();
 
@@ -641,6 +647,63 @@ void MainWindow::onExportAllClicked() {
         statusBar()->showMessage("Exporting all occupied samples...");
         QMetaObject::invokeMethod(worker_, "downloadAllSamples", Qt::QueuedConnection, Q_ARG(QString, dir));
     }
+}
+
+void MainWindow::onDownloadPackageClicked() {
+    if (!dev_status_label_->text().contains("Connected") && !dev_status_label_->text().contains("Firmware")) {
+        QMessageBox::warning(this, "Download Package", "Please connect to the Volca Sample 2 first.");
+        return;
+    }
+
+    QString file_path = QFileDialog::getSaveFileName(
+        this,
+        "Save Preset Package",
+        "volca_sample2_backup.ivlcsplpreset",
+        "Volca Sample 2 Preset (*.ivlcsplpreset)"
+    );
+    if (file_path.isEmpty()) {
+        return;
+    }
+    if (!file_path.endsWith(".ivlcsplpreset", Qt::CaseInsensitive)) {
+        file_path += ".ivlcsplpreset";
+    }
+
+    QDialog meta_dlg(this);
+    meta_dlg.setWindowTitle("Package Information");
+    meta_dlg.setMinimumWidth(380);
+    auto* layout = new QVBoxLayout(&meta_dlg);
+
+    layout->addWidget(new QLabel("Preset Collection Name:"));
+    auto* edit_name = new QLineEdit(&meta_dlg);
+    edit_name->setText(QFileInfo(file_path).baseName());
+    layout->addWidget(edit_name);
+
+    layout->addWidget(new QLabel("Author / Creator:"));
+    auto* edit_author = new QLineEdit(&meta_dlg);
+    edit_author->setPlaceholderText("Optional author name");
+    layout->addWidget(edit_author);
+
+    auto* btn_box = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &meta_dlg);
+    connect(btn_box, &QDialogButtonBox::accepted, &meta_dlg, &QDialog::accept);
+    connect(btn_box, &QDialogButtonBox::rejected, &meta_dlg, &QDialog::reject);
+    layout->addWidget(btn_box);
+
+    if (meta_dlg.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    QString preset_name = edit_name->text().trimmed();
+    if (preset_name.isEmpty()) {
+        preset_name = QFileInfo(file_path).baseName();
+    }
+    QString author_name = edit_author->text().trimmed();
+
+    operation_progress_->show();
+    statusBar()->showMessage("Downloading package (all 16 patterns and 200 samples)...");
+    QMetaObject::invokeMethod(worker_, "downloadPackage", Qt::QueuedConnection,
+                              Q_ARG(QString, file_path),
+                              Q_ARG(QString, preset_name),
+                              Q_ARG(QString, author_name));
 }
 
 void MainWindow::onPlayClicked() {

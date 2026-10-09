@@ -411,6 +411,30 @@ SampleData Device::get_sample(uint8_t sample_no) {
     return SampleData::parse(raw);
 }
 
+PatternData Device::get_pattern(uint8_t pattern_no) {
+    if (pattern_no > 15) {
+        throw std::runtime_error("pattern_no must be less than 16 (0-15)");
+    }
+    clear_input();
+    PatternDumpRequest req{channel_.as_u8(), pattern_no};
+    send_raw(req.encode());
+    auto raw = receive_raw(std::chrono::milliseconds(10000));
+    return PatternData::parse(raw);
+}
+
+std::vector<PatternData> Device::get_all_patterns(std::function<void(uint8_t pattern_no, const PatternData& pattern)> on_pattern_read) {
+    std::vector<PatternData> patterns;
+    patterns.reserve(PatternData::MAX_PATTERNS);
+    for (uint8_t i = 0; i < PatternData::MAX_PATTERNS; ++i) {
+        auto pat = get_pattern(i);
+        if (on_pattern_read) {
+            on_pattern_read(i, pat);
+        }
+        patterns.push_back(std::move(pat));
+    }
+    return patterns;
+}
+
 void Device::delete_sample(uint8_t sample_no) {
     if (sample_no > 199) {
         throw std::runtime_error("sample_no must be less than 200");

@@ -137,6 +137,21 @@ public:
     SampleData get_sample(uint8_t sample_no);
 
     /**
+     * @brief Downloads a sequencer pattern from the device.
+     * @param pattern_no Pattern slot index (0-15).
+     * @return PatternData containing pattern metadata and 7,936-byte raw sequence payload.
+     * @throws std::runtime_error if pattern_no > 15 or communication fails.
+     */
+    PatternData get_pattern(uint8_t pattern_no);
+
+    /**
+     * @brief Downloads all 16 sequencer patterns from the device sequentially.
+     * @param on_pattern_read Optional callback invoked after each pattern is retrieved.
+     * @return Vector of 16 PatternData structures.
+     */
+    std::vector<PatternData> get_all_patterns(std::function<void(uint8_t pattern_no, const PatternData& pattern)> on_pattern_read = nullptr);
+
+    /**
      * @brief Erases the sample in the specified slot by transmitting an empty header.
      * @param sample_no Slot index (0-199).
      * @throws std::runtime_error if the device rejects the erase command.

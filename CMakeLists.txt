@@ -10,6 +10,8 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(ALSA REQUIRED alsa)
 pkg_check_modules(SAMPLERATE REQUIRED samplerate)
 pkg_check_modules(SNDFILE REQUIRED sndfile)
+pkg_check_modules(LIBZIP REQUIRED libzip)
+find_package(OpenSSL REQUIRED)
 
 # Core Library
 add_library(volsa2_core STATIC
@@ -18,6 +20,7 @@ add_library(volsa2_core STATIC
     src/audio.cpp
     src/device.cpp
     src/sample_chopper.cpp
+    src/package.cpp
 )
 
 target_include_directories(volsa2_core PUBLIC
@@ -26,12 +29,16 @@ target_include_directories(volsa2_core PUBLIC
     ${ALSA_INCLUDE_DIRS}
     ${SAMPLERATE_INCLUDE_DIRS}
     ${SNDFILE_INCLUDE_DIRS}
+    ${LIBZIP_INCLUDE_DIRS}
+    ${OPENSSL_INCLUDE_DIR}
 )
 
 target_link_libraries(volsa2_core PUBLIC
     ${ALSA_LIBRARIES}
     ${SAMPLERATE_LIBRARIES}
     ${SNDFILE_LIBRARIES}
+    ${LIBZIP_LIBRARIES}
+    OpenSSL::Crypto
 )
 
 # CLI Binary
@@ -60,6 +67,14 @@ add_test(NAME test_proto_comprehensive COMMAND test_proto_comprehensive)
 add_executable(test_sample_chopper tests/test_sample_chopper.cpp)
 target_link_libraries(test_sample_chopper PRIVATE volsa2_core)
 add_test(NAME test_sample_chopper COMMAND test_sample_chopper)
+
+add_executable(test_pattern_proto tests/test_pattern_proto.cpp)
+target_link_libraries(test_pattern_proto PRIVATE volsa2_core)
+add_test(NAME test_pattern_proto COMMAND test_pattern_proto)
+
+add_executable(test_package tests/test_package.cpp)
+target_link_libraries(test_package PRIVATE volsa2_core)
+add_test(NAME test_package COMMAND test_package)
 
 # GUI
 option(BUILD_GUI "Build Qt GUI application" ON)

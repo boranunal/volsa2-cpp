@@ -7,6 +7,7 @@
 
 #include "device_worker.hpp"
 #include "volsa2/audio.hpp"
+#include "volsa2/package.hpp"
 
 #include <filesystem>
 
@@ -225,5 +226,73 @@ void DeviceWorker::downloadAllSamples(const QString& destinationDir) {
 
     } catch (const std::exception& e) {
         emit deviceError(QString("Batch export failed: %1").arg(e.what()));
+    }
+}
+
+/**
+ * @brief Downloads all 16 patterns and 200 samples and archives them into an .ivlcsplpreset file.
+ */
+void DeviceWorker::downloadPackage(const QString& filePath, const QString& presetName, const QString& author) {
+    if (!device_ || !device_->is_connected()) {
+        emit deviceError("Device is not connected");
+        return;
+    }
+
+    try {
+        fs::path out_path = filePath.toStdString();
+        auto pkg = volsa2::PackageData::create_default(
+            presetName.isEmpty() ? out_path.stem().string() : presetName.toStdString(),
+            author.toStdString()
+        );
+
+        int total_steps = 16 + 200 + 1;
+        int current_step = 0;
+
+        // Phase 1: 16 Patterns
+        for (uint8_t i = 0; i < volsa2::PatternData::MAX_PATTERNS; ++i) {
+            emit progress(++current_step, total_steps, QString("Downloading pattern %1 of 16...").arg(i + 1));
+            auto pat = device_->get_pattern(i);
+            pkg.programs[i].pattern = std::move(pat);
+        }
+
+        // Phase 2: 200 Sample Headers
+        std::vector<uint8_t> active_slots;
+        for (uint8_t i = 0; i < 200; ++i) {
+            if (i % 10 == 0 || i == 199) {
+                emit progress(current_step, total_steps, QString("Scanning sample headers (%1/200)...").arg(i + 1));
+            }
+            auto h = device_->get_sample_header(i);
+            pkg.samples[i].header = h;
+            if (!h.is_empty()) {
+                active_slots.push_back(i);
+            }
+            current_step++;
+        }
+
+        total_steps += static_cast<int>(active_slots.size());
+
+        // Phase 3: Sample PCM Audio
+        for (size_t idx = 0; idx < active_slots.size(); ++idx) {
+            uint8_t slot = active_slots[idx];
+            emit progress(++current_step, total_steps,
+                          QString("Downloading sample audio %1/%2 (slot %3: %4)...")
+                          .arg(idx + 1)
+                          .arg(active_slots.size())
+                          .arg(slot)
+                          .arg(QString::fromStdString(pkg.samples[slot].header.name)));
+            auto sdata = device_->get_sample(slot);
+            pkg.samples[slot].data = std::move(sdata);
+        }
+
+        // Phase 4: Write ZIP package
+        emit progress(total_steps - 1, total_steps, "Packing into .ivlcsplpreset archive...");
+        volsa2::save_package(out_path, pkg);
+
+        emit progress(total_steps, total_steps, "Package download complete.");
+        emit packageDownloaded(filePath);
+        emit batchFinished(QString("Package saved successfully to %1").arg(filePath));
+
+    } catch (const std::exception& e) {
+        emit deviceError(QString("Package download failed: %1").arg(e.what()));
     }
 }

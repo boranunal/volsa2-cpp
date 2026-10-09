@@ -307,4 +307,89 @@ SampleData SampleData::parse(std::span<const uint8_t> slice) {
     return sd;
 }
 
+/**
+ * @brief Factory creating a PatternData object, initializing name and PTST magic if needed.
+ */
+PatternData PatternData::create(uint8_t pattern_no, const std::string& name, std::vector<uint8_t> raw) {
+    PatternData pd;
+    pd.pattern_no = pattern_no & 0x0F;
+    if (raw.size() == RAW_PATTERN_SIZE) {
+        pd.raw_data = std::move(raw);
+    } else {
+        pd.raw_data.assign(RAW_PATTERN_SIZE, 0);
+        pd.raw_data[0] = 'P';
+        pd.raw_data[1] = 'T';
+        pd.raw_data[2] = 'S';
+        pd.raw_data[3] = 'T';
+    }
+
+    if (!name.empty()) {
+        pd.name = name.substr(0, std::min<size_t>(name.size(), NAME_MAX_LEN));
+        std::memset(pd.raw_data.data() + NAME_OFFSET, 0, NAME_MAX_LEN);
+        std::memcpy(pd.raw_data.data() + NAME_OFFSET, pd.name.data(), pd.name.size());
+    } else {
+        size_t nlen = 0;
+        while (nlen < NAME_MAX_LEN && pd.raw_data[NAME_OFFSET + nlen] != '\0') {
+            nlen++;
+        }
+        pd.name = std::string(reinterpret_cast<const char*>(pd.raw_data.data() + NAME_OFFSET), nlen);
+    }
+
+    return pd;
+}
+
+/**
+ * @brief Serializes the pattern payload into a 9,079-byte SysEx message.
+ */
+std::vector<uint8_t> PatternData::encode(uint8_t channel) const {
+    if (raw_data.size() != RAW_PATTERN_SIZE) {
+        throw std::runtime_error("PatternData::encode: invalid raw_data size (expected " +
+                                 std::to_string(RAW_PATTERN_SIZE) + ", got " + std::to_string(raw_data.size()) + ")");
+    }
+    ExtendedKorgSysEx header{channel};
+    std::vector<uint8_t> msg = header.encode();
+    msg.push_back(0x4D);
+    msg.push_back(pattern_no & 0x0F);
+
+    auto u7 = U8ToU7::convert(raw_data);
+    msg.insert(msg.end(), u7.begin(), u7.end());
+    msg.push_back(EOX);
+
+    return msg;
+}
+
+/**
+ * @brief Parses an incoming 9,079-byte PatternData SysEx message (0x4D).
+ */
+PatternData PatternData::parse(std::span<const uint8_t> slice) {
+    if (slice.size() < SYSEX_MESSAGE_SIZE) {
+        throw std::runtime_error("PatternData::parse: message too short (expected " +
+                                 std::to_string(SYSEX_MESSAGE_SIZE) + ", got " + std::to_string(slice.size()) + ")");
+    }
+    auto header = ExtendedKorgSysEx::parse(slice.subspan(0, ExtendedKorgSysEx::LEN));
+    if (!header) {
+        throw std::runtime_error("PatternData::parse: invalid ExtendedKorgSysEx header");
+    }
+    if (slice[6] != 0x4D) {
+        throw std::runtime_error("PatternData::parse: invalid function ID (expected 0x4D, got 0x" +
+                                 std::to_string(slice[6]) + ")");
+    }
+    if (slice.back() != EOX) {
+        throw std::runtime_error("PatternData::parse: missing EOX terminator");
+    }
+
+    uint8_t pattern_no = slice[7] & 0x0F;
+    auto u7_payload = slice.subspan(8, slice.size() - 9);
+    auto raw = U7ToU8::convert(u7_payload);
+    if (raw.size() < RAW_PATTERN_SIZE) {
+        throw std::runtime_error("PatternData::parse: decoded data too short (got " +
+                                 std::to_string(raw.size()) + ", expected " + std::to_string(RAW_PATTERN_SIZE) + ")");
+    }
+    if (raw.size() > RAW_PATTERN_SIZE) {
+        raw.resize(RAW_PATTERN_SIZE);
+    }
+
+    return create(pattern_no, "", std::move(raw));
+}
+
 } // namespace volsa2

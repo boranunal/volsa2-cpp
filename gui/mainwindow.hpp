@@ -77,6 +77,7 @@ private slots:
     void onDownloadClicked();
     void onDeleteClicked();
     void onExportAllClicked();
+    void onDownloadPackageClicked();
 
     // Playback
     void onPlayClicked();

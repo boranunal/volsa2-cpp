@@ -91,6 +91,14 @@ public slots:
      */
     void downloadAllSamples(const QString& destinationDir);
 
+    /**
+     * @brief Downloads all 16 patterns and 200 samples and archives them into an .ivlcsplpreset file.
+     * @param filePath Target package file destination on disk.
+     * @param presetName Custom preset collection name.
+     * @param author Creator or sound designer name.
+     */
+    void downloadPackage(const QString& filePath, const QString& presetName, const QString& author);
+
 signals:
     /** @brief Emitted when connection and inquiry handshake succeed. */
     void deviceConnected(const QString& version, int channel);
@@ -124,6 +132,9 @@ signals:
 
     /** @brief Emitted after a sample is successfully downloaded and saved to disk. */
     void sampleDownloaded(int slot, const QString& filePath);
+
+    /** @brief Emitted when an entire .ivlcsplpreset library package has been written to disk. */
+    void packageDownloaded(const QString& filePath);
 
     /** @brief Emitted after a batch operation (e.g. download all) completes. */
     void batchFinished(const QString& message);
