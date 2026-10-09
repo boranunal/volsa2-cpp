@@ -497,7 +497,7 @@ void MainWindow::onUploadClicked() {
             }
         }
 
-        sample_cache_.erase(slot);
+        sample_cache_[slot] = data;
         operation_progress_->show();
         statusBar()->showMessage(QString("Uploading to slot %1...").arg(slot));
         QMetaObject::invokeMethod(worker_, "uploadSample", Qt::QueuedConnection,
@@ -560,7 +560,7 @@ void MainWindow::onChopClicked() {
 
     connect(&dlg, &SampleChopperDialog::cropAndSaveRequested, this, [this](int target_slot, const QString& sample_name, const std::vector<int16_t>& audio) {
         if (target_slot >= 0) {
-            sample_cache_.erase(target_slot);
+            sample_cache_[target_slot] = audio;
             operation_progress_->show();
             statusBar()->showMessage(QString("Uploading cropped audio to slot %1...").arg(target_slot));
             QMetaObject::invokeMethod(worker_, "uploadSample", Qt::QueuedConnection,
@@ -573,7 +573,7 @@ void MainWindow::onChopClicked() {
         for (size_t i = 0; i < slices.size(); ++i) {
             int target_slot = start_slot + static_cast<int>(i);
             QString slice_name = QString("%1_%2").arg(base_name.left(18)).arg(i + 1);
-            sample_cache_.erase(target_slot);
+            sample_cache_[target_slot] = slices[i];
             QMetaObject::invokeMethod(worker_, "uploadSample", Qt::QueuedConnection,
                                       Q_ARG(int, target_slot), Q_ARG(QString, slice_name),
                                       Q_ARG(std::vector<int16_t>, slices[i]));
@@ -709,7 +709,7 @@ void MainWindow::dropEvent(QDropEvent* event) {
         QString name = dlg.sampleName();
         const auto& data = dlg.audioData();
 
-        sample_cache_.erase(slot);
+        sample_cache_[slot] = data;
         operation_progress_->show();
         statusBar()->showMessage(QString("Uploading dropped file to slot %1...").arg(slot));
         QMetaObject::invokeMethod(worker_, "uploadSample", Qt::QueuedConnection,
@@ -793,9 +793,34 @@ void MainWindow::onWorkerSampleDataReady(int slot, const std::vector<int16_t>& s
 }
 
 void MainWindow::onWorkerSampleUploaded(int slot, const QString& name) {
-    sample_cache_.erase(slot);
     operation_progress_->hide();
     statusBar()->showMessage(QString("Sample \"%1\" uploaded to slot %2.").arg(name).arg(slot), 4000);
+
+    // Refresh slot header in cached slot list if audio is known in cache
+    auto it = sample_cache_.find(slot);
+    if (it != sample_cache_.end() && slot >= 0 && static_cast<size_t>(slot) < slots_.size()) {
+        slots_[slot].name = name.toStdString();
+        slots_[slot].length = static_cast<uint32_t>(it->second.size());
+        updateTableItem(slot, slots_[slot]);
+    }
+
+    // If this slot is the active preview slot or currently selected, immediately update waveform and playback!
+    if (slot == selectedSlot() || slot == active_preview_slot_) {
+        active_preview_slot_ = slot;
+        if (it != sample_cache_.end()) {
+            current_samples_ = it->second;
+            waveform_widget_->setAudioData(current_samples_, volsa2::VOLCA_SAMPLERATE);
+            waveform_widget_->clearSelection();
+            btn_play_->setEnabled(!current_samples_.empty());
+            double dur = static_cast<double>(current_samples_.size()) / volsa2::VOLCA_SAMPLERATE;
+            sample_detail_label_->setText(QString("Slot %1: \"%2\" | %3 samples (%4s)")
+                                              .arg(slot)
+                                              .arg(name)
+                                              .arg(current_samples_.size())
+                                              .arg(QString::number(dur, 'f', 2)));
+        }
+    }
+
     table_->selectRow(slot);
 }
 

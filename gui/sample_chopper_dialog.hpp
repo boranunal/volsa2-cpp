@@ -16,6 +16,7 @@
 #include <QDialog>
 #include <QListWidget>
 #include <QSpinBox>
+#include <QDoubleSpinBox>
 #include <QComboBox>
 #include <QLabel>
 #include <QPushButton>
@@ -56,6 +57,8 @@ private slots:
     void onPlayFull();
     void onAutoTrimSilence();
     void onWaveformSelectionChanged(size_t start, size_t end);
+    void onCropSpinChanged();
+    void onToggleCropView();
     void onCropInPlace();
     void onExportSlices();
 
@@ -75,9 +78,11 @@ private:
     QListWidget* slice_list_{nullptr};        ///< List of generated slices
 
     // Crop inputs
-    QSpinBox* start_crop_spin_{nullptr};
-    QSpinBox* end_crop_spin_{nullptr};
+    QDoubleSpinBox* start_crop_spin_{nullptr};///< Crop start in seconds
+    QDoubleSpinBox* end_crop_spin_{nullptr};  ///< Crop end in seconds
     QPushButton* btn_auto_trim_{nullptr};
+    QPushButton* btn_toggle_crop_view_{nullptr};
+    bool showing_cropped_view_{false};
 
     // Playback
     QPushButton* btn_play_slice_{nullptr};

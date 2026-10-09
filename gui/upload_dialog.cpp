@@ -94,15 +94,21 @@ UploadDialog::UploadDialog(const std::vector<volsa2::SampleHeader>& current_slot
     // Chopping controls bar
     auto* chop_bar = new QHBoxLayout();
     chop_bar->addWidget(new QLabel("Crop Start:"));
-    start_crop_spin_ = new QSpinBox();
-    start_crop_spin_->setRange(0, 10000000);
-    start_crop_spin_->setSingleStep(256);
+    start_crop_spin_ = new QDoubleSpinBox();
+    start_crop_spin_->setRange(0.0, 3600.0);
+    start_crop_spin_->setDecimals(3);
+    start_crop_spin_->setSingleStep(0.010);
+    start_crop_spin_->setSuffix(" s");
+    connect(start_crop_spin_, &QDoubleSpinBox::valueChanged, this, &UploadDialog::onCropSpinChanged);
     chop_bar->addWidget(start_crop_spin_);
 
     chop_bar->addWidget(new QLabel("Crop End:"));
-    end_crop_spin_ = new QSpinBox();
-    end_crop_spin_->setRange(0, 10000000);
-    end_crop_spin_->setSingleStep(256);
+    end_crop_spin_ = new QDoubleSpinBox();
+    end_crop_spin_->setRange(0.0, 3600.0);
+    end_crop_spin_->setDecimals(3);
+    end_crop_spin_->setSingleStep(0.010);
+    end_crop_spin_->setSuffix(" s");
+    connect(end_crop_spin_, &QDoubleSpinBox::valueChanged, this, &UploadDialog::onCropSpinChanged);
     chop_bar->addWidget(end_crop_spin_);
 
     btn_auto_trim_ = new QPushButton("Auto-Trim Silence");
@@ -113,6 +119,12 @@ UploadDialog::UploadDialog(const std::vector<volsa2::SampleHeader>& current_slot
     btn_reset_crop_ = new QPushButton("Reset Crop");
     connect(btn_reset_crop_, &QPushButton::clicked, this, &UploadDialog::onResetCrop);
     chop_bar->addWidget(btn_reset_crop_);
+
+    btn_toggle_crop_view_ = new QPushButton("🔍 Preview Cropped");
+    btn_toggle_crop_view_->setToolTip("Toggle waveform view between Full Waveform and Cropped Selection.");
+    btn_toggle_crop_view_->setStyleSheet("QPushButton { border-color: #00b4d8; color: #48cae4; font-weight: bold; }");
+    connect(btn_toggle_crop_view_, &QPushButton::clicked, this, &UploadDialog::onToggleCropView);
+    chop_bar->addWidget(btn_toggle_crop_view_);
 
     chop_bar->addStretch();
     main_layout->addLayout(chop_bar);
@@ -129,8 +141,12 @@ UploadDialog::UploadDialog(const std::vector<volsa2::SampleHeader>& current_slot
 
     connect(&audio_player_, &AlsaAudioPlayer::positionChanged, this, [this](double norm_pos) {
         if (converted_samples_.empty()) return;
-        size_t s = static_cast<size_t>(start_crop_spin_->value());
-        size_t e = static_cast<size_t>(end_crop_spin_->value());
+        if (showing_cropped_view_) {
+            waveform_widget_->setPlayheadPosition(norm_pos);
+            return;
+        }
+        size_t s = static_cast<size_t>(std::clamp(std::round(start_crop_spin_->value() * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(converted_samples_.size())));
+        size_t e = static_cast<size_t>(std::clamp(std::round(end_crop_spin_->value() * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(converted_samples_.size())));
         if (e <= s) {
             waveform_widget_->setPlayheadPosition(norm_pos);
             return;
@@ -161,12 +177,10 @@ UploadDialog::UploadDialog(const std::vector<volsa2::SampleHeader>& current_slot
     btn_box->addWidget(btn_upload_);
     main_layout->addLayout(btn_box);
 
-    connect(slot_spin_, QOverload<int>::of(&QSpinBox::valueChanged), this, &UploadDialog::onSlotChanged);
-    connect(mono_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &UploadDialog::onMonoModeChanged);
+    connect(slot_spin_, &QSpinBox::valueChanged, this, &UploadDialog::onSlotChanged);
+    connect(mono_combo_, &QComboBox::currentIndexChanged, this, &UploadDialog::onMonoModeChanged);
     connect(file_path_edit_, &QLineEdit::textChanged, this, &UploadDialog::updateFileInfoAndConversion);
     connect(waveform_widget_, &WaveformWidget::selectionChanged, this, &UploadDialog::onWaveformSelectionChanged);
-    connect(start_crop_spin_, QOverload<int>::of(&QSpinBox::valueChanged), this, &UploadDialog::onCropSpinChanged);
-    connect(end_crop_spin_, QOverload<int>::of(&QSpinBox::valueChanged), this, &UploadDialog::onCropSpinChanged);
 
     if (initial_slot >= 0) {
         slot_spin_->setValue(initial_slot);
@@ -191,8 +205,8 @@ QString UploadDialog::sampleName() const {
 
 std::vector<int16_t> UploadDialog::audioData() const {
     if (converted_samples_.empty()) return {};
-    size_t s = static_cast<size_t>(start_crop_spin_->value());
-    size_t e = static_cast<size_t>(end_crop_spin_->value());
+    size_t s = static_cast<size_t>(std::clamp(std::round(start_crop_spin_->value() * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(converted_samples_.size())));
+    size_t e = static_cast<size_t>(std::clamp(std::round(end_crop_spin_->value() * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(converted_samples_.size())));
     return volsa2::crop_audio(converted_samples_, s, e, true);
 }
 
@@ -241,51 +255,102 @@ void UploadDialog::onMonoModeChanged() {
 }
 
 void UploadDialog::onWaveformSelectionChanged(size_t start, size_t end) {
+    if (showing_cropped_view_) return;
+    double s_sec = static_cast<double>(start) / volsa2::VOLCA_SAMPLERATE;
+    double e_sec = static_cast<double>(end) / volsa2::VOLCA_SAMPLERATE;
     start_crop_spin_->blockSignals(true);
     end_crop_spin_->blockSignals(true);
-    start_crop_spin_->setValue(static_cast<int>(start));
-    end_crop_spin_->setValue(static_cast<int>(end));
+    start_crop_spin_->setValue(s_sec);
+    end_crop_spin_->setValue(e_sec);
     start_crop_spin_->blockSignals(false);
     end_crop_spin_->blockSignals(false);
     updateCropReadout();
 }
 
 void UploadDialog::onCropSpinChanged() {
-    int s = start_crop_spin_->value();
-    int e = end_crop_spin_->value();
+    double s = start_crop_spin_->value();
+    double e = end_crop_spin_->value();
     if (s > e) {
         start_crop_spin_->blockSignals(true);
         start_crop_spin_->setValue(e);
         start_crop_spin_->blockSignals(false);
         s = e;
     }
-    waveform_widget_->setSelection(static_cast<size_t>(s), static_cast<size_t>(e));
+    size_t s_smpls = static_cast<size_t>(std::clamp(std::round(s * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(converted_samples_.size())));
+    size_t e_smpls = static_cast<size_t>(std::clamp(std::round(e * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(converted_samples_.size())));
+    if (showing_cropped_view_) {
+        auto cropped = audioData();
+        waveform_widget_->setAudioData(cropped, volsa2::VOLCA_SAMPLERATE);
+        waveform_widget_->clearSelection();
+    } else {
+        waveform_widget_->setSelection(s_smpls, e_smpls);
+    }
     updateCropReadout();
 }
 
 void UploadDialog::onAutoTrimSilence() {
     if (converted_samples_.empty()) return;
     auto [start_bound, end_bound] = volsa2::find_silence_bounds(converted_samples_, -48.0);
-    waveform_widget_->setSelection(start_bound, end_bound);
+    double s_sec = static_cast<double>(start_bound) / volsa2::VOLCA_SAMPLERATE;
+    double e_sec = static_cast<double>(end_bound) / volsa2::VOLCA_SAMPLERATE;
+
     start_crop_spin_->blockSignals(true);
     end_crop_spin_->blockSignals(true);
-    start_crop_spin_->setValue(static_cast<int>(start_bound));
-    end_crop_spin_->setValue(static_cast<int>(end_bound));
+    start_crop_spin_->setValue(s_sec);
+    end_crop_spin_->setValue(e_sec);
     start_crop_spin_->blockSignals(false);
     end_crop_spin_->blockSignals(false);
+
+    if (showing_cropped_view_) {
+        auto cropped = audioData();
+        waveform_widget_->setAudioData(cropped, volsa2::VOLCA_SAMPLERATE);
+        waveform_widget_->clearSelection();
+    } else {
+        waveform_widget_->setSelection(start_bound, end_bound);
+    }
     updateCropReadout();
 }
 
 void UploadDialog::onResetCrop() {
     if (converted_samples_.empty()) return;
-    waveform_widget_->clearSelection();
+    double total_sec = static_cast<double>(converted_samples_.size()) / volsa2::VOLCA_SAMPLERATE;
     start_crop_spin_->blockSignals(true);
     end_crop_spin_->blockSignals(true);
-    start_crop_spin_->setValue(0);
-    end_crop_spin_->setValue(static_cast<int>(converted_samples_.size()));
+    start_crop_spin_->setValue(0.0);
+    end_crop_spin_->setValue(total_sec);
     start_crop_spin_->blockSignals(false);
     end_crop_spin_->blockSignals(false);
+
+    if (showing_cropped_view_) {
+        showing_cropped_view_ = false;
+        btn_toggle_crop_view_->setText("🔍 Preview Cropped");
+        btn_toggle_crop_view_->setStyleSheet("QPushButton { border-color: #00b4d8; color: #48cae4; font-weight: bold; }");
+        waveform_widget_->setSelectionEnabled(true);
+    }
+    waveform_widget_->setAudioData(converted_samples_, volsa2::VOLCA_SAMPLERATE);
+    waveform_widget_->clearSelection();
     updateCropReadout();
+}
+
+void UploadDialog::onToggleCropView() {
+    if (converted_samples_.empty()) return;
+    showing_cropped_view_ = !showing_cropped_view_;
+    if (showing_cropped_view_) {
+        btn_toggle_crop_view_->setText("↩ Show Full Waveform");
+        btn_toggle_crop_view_->setStyleSheet("QPushButton { background-color: #00aa88; color: white; font-weight: bold; }");
+        auto cropped = audioData();
+        waveform_widget_->setAudioData(cropped, volsa2::VOLCA_SAMPLERATE);
+        waveform_widget_->clearSelection();
+        waveform_widget_->setSelectionEnabled(false);
+    } else {
+        btn_toggle_crop_view_->setText("🔍 Preview Cropped");
+        btn_toggle_crop_view_->setStyleSheet("QPushButton { border-color: #00b4d8; color: #48cae4; font-weight: bold; }");
+        waveform_widget_->setAudioData(converted_samples_, volsa2::VOLCA_SAMPLERATE);
+        waveform_widget_->setSelectionEnabled(true);
+        size_t s = static_cast<size_t>(std::clamp(std::round(start_crop_spin_->value() * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(converted_samples_.size())));
+        size_t e = static_cast<size_t>(std::clamp(std::round(end_crop_spin_->value() * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(converted_samples_.size())));
+        waveform_widget_->setSelection(s, e);
+    }
 }
 
 void UploadDialog::updateCropReadout() {
@@ -293,17 +358,17 @@ void UploadDialog::updateCropReadout() {
         crop_info_label_->setText("");
         return;
     }
-    size_t s = static_cast<size_t>(start_crop_spin_->value());
-    size_t e = static_cast<size_t>(end_crop_spin_->value());
-    size_t crop_len = (e > s) ? (e - s) : 0;
-    double crop_sec = static_cast<double>(crop_len) / volsa2::VOLCA_SAMPLERATE;
+    double s = start_crop_spin_->value();
+    double e = end_crop_spin_->value();
+    double crop_sec = (e > s) ? (e - s) : 0.0;
+    size_t crop_smpls = static_cast<size_t>(std::round(crop_sec * volsa2::VOLCA_SAMPLERATE));
     double orig_sec = static_cast<double>(converted_samples_.size()) / volsa2::VOLCA_SAMPLERATE;
     crop_info_label_->setText(
-        QString("Cropped: %1 samples (%2s) of %3 samples (%4s)")
-            .arg(crop_len)
-            .arg(QString::number(crop_sec, 'f', 2))
+        QString("Cropped Duration: %1s (%2 samples) | Total: %3s (%4 samples)")
+            .arg(QString::number(crop_sec, 'f', 3))
+            .arg(crop_smpls)
+            .arg(QString::number(orig_sec, 'f', 3))
             .arg(converted_samples_.size())
-            .arg(QString::number(orig_sec, 'f', 2))
     );
 }
 
@@ -329,16 +394,22 @@ void UploadDialog::updateFileInfoAndConversion() {
         auto mode = static_cast<volsa2::MonoMode>(mono_combo_->currentData().toInt());
         converted_samples_ = volsa2::load_and_convert_audio(file_path.toStdString(), mode);
 
-        waveform_widget_->setAudioData(converted_samples_, volsa2::VOLCA_SAMPLERATE);
-
+        double total_sec = static_cast<double>(converted_samples_.size()) / volsa2::VOLCA_SAMPLERATE;
         start_crop_spin_->blockSignals(true);
         end_crop_spin_->blockSignals(true);
-        start_crop_spin_->setRange(0, static_cast<int>(converted_samples_.size()));
-        end_crop_spin_->setRange(0, static_cast<int>(converted_samples_.size()));
-        start_crop_spin_->setValue(0);
-        end_crop_spin_->setValue(static_cast<int>(converted_samples_.size()));
+        start_crop_spin_->setRange(0.0, total_sec);
+        end_crop_spin_->setRange(0.0, total_sec);
+        start_crop_spin_->setValue(0.0);
+        end_crop_spin_->setValue(total_sec);
         start_crop_spin_->blockSignals(false);
         end_crop_spin_->blockSignals(false);
+
+        showing_cropped_view_ = false;
+        btn_toggle_crop_view_->setText("🔍 Preview Cropped");
+        btn_toggle_crop_view_->setStyleSheet("QPushButton { border-color: #00b4d8; color: #48cae4; font-weight: bold; }");
+        waveform_widget_->setSelectionEnabled(true);
+        waveform_widget_->setAudioData(converted_samples_, volsa2::VOLCA_SAMPLERATE);
+        waveform_widget_->clearSelection();
         updateCropReadout();
 
         double src_dur = info.duration_seconds;

@@ -77,28 +77,43 @@ SampleChopperDialog::SampleChopperDialog(const std::vector<volsa2::SampleHeader>
     slice_config_layout->addWidget(btn_recompute);
 
     // Manual Trimming sub-panel
+    // Manual Trimming sub-panel
     auto* crop_box = new QGroupBox("Region Crop (Start / End)");
     auto* crop_layout = new QGridLayout(crop_box);
     crop_layout->addWidget(new QLabel("Start:"), 0, 0);
-    start_crop_spin_ = new QSpinBox();
-    start_crop_spin_->setRange(0, static_cast<int>(samples.size()));
+    start_crop_spin_ = new QDoubleSpinBox();
+    start_crop_spin_->setRange(0.0, dur_secs);
+    start_crop_spin_->setDecimals(3);
+    start_crop_spin_->setSingleStep(0.010);
+    start_crop_spin_->setSuffix(" s");
+    connect(start_crop_spin_, &QDoubleSpinBox::valueChanged, this, &SampleChopperDialog::onCropSpinChanged);
     crop_layout->addWidget(start_crop_spin_, 0, 1);
 
     crop_layout->addWidget(new QLabel("End:"), 1, 0);
-    end_crop_spin_ = new QSpinBox();
-    end_crop_spin_->setRange(0, static_cast<int>(samples.size()));
-    end_crop_spin_->setValue(static_cast<int>(samples.size()));
+    end_crop_spin_ = new QDoubleSpinBox();
+    end_crop_spin_->setRange(0.0, dur_secs);
+    end_crop_spin_->setDecimals(3);
+    end_crop_spin_->setSingleStep(0.010);
+    end_crop_spin_->setSuffix(" s");
+    end_crop_spin_->setValue(dur_secs);
+    connect(end_crop_spin_, &QDoubleSpinBox::valueChanged, this, &SampleChopperDialog::onCropSpinChanged);
     crop_layout->addWidget(end_crop_spin_, 1, 1);
 
     btn_auto_trim_ = new QPushButton("Auto-Trim Silence");
     connect(btn_auto_trim_, &QPushButton::clicked, this, &SampleChopperDialog::onAutoTrimSilence);
     crop_layout->addWidget(btn_auto_trim_, 2, 0, 1, 2);
 
+    btn_toggle_crop_view_ = new QPushButton("🔍 Preview Cropped");
+    btn_toggle_crop_view_->setToolTip("Toggle waveform view between Full Waveform and Cropped Selection.");
+    btn_toggle_crop_view_->setStyleSheet("QPushButton { border-color: #00b4d8; color: #48cae4; font-weight: bold; }");
+    connect(btn_toggle_crop_view_, &QPushButton::clicked, this, &SampleChopperDialog::onToggleCropView);
+    crop_layout->addWidget(btn_toggle_crop_view_, 3, 0, 1, 2);
+
     if (source_slot >= 0) {
         auto* btn_crop_in_place = new QPushButton("Crop & Overwrite Slot");
         btn_crop_in_place->setStyleSheet("font-weight: bold; color: #ffbb44;");
         connect(btn_crop_in_place, &QPushButton::clicked, this, &SampleChopperDialog::onCropInPlace);
-        crop_layout->addWidget(btn_crop_in_place, 3, 0, 1, 2);
+        crop_layout->addWidget(btn_crop_in_place, 4, 0, 1, 2);
     }
 
     slice_config_layout->addWidget(crop_box);
@@ -168,7 +183,20 @@ SampleChopperDialog::SampleChopperDialog(const std::vector<volsa2::SampleHeader>
             onPlaySelectedSlice();
         }
     });
-    connect(&audio_player_, &AlsaAudioPlayer::positionChanged, waveform_widget_, &WaveformWidget::setPlayheadPosition);
+    connect(&audio_player_, &AlsaAudioPlayer::positionChanged, this, [this](double norm_pos) {
+        if (showing_cropped_view_) {
+            waveform_widget_->setPlayheadPosition(norm_pos);
+        } else {
+            size_t s = static_cast<size_t>(std::clamp(std::round(start_crop_spin_->value() * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(original_samples_.size())));
+            size_t e = static_cast<size_t>(std::clamp(std::round(end_crop_spin_->value() * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(original_samples_.size())));
+            if (e > s && !original_samples_.empty()) {
+                double full_norm = (static_cast<double>(s) + norm_pos * (e - s)) / original_samples_.size();
+                waveform_widget_->setPlayheadPosition(full_norm);
+            } else {
+                waveform_widget_->setPlayheadPosition(norm_pos);
+            }
+        }
+    });
     connect(&audio_player_, &AlsaAudioPlayer::playbackFinished, this, [this]() {
         btn_play_full_->setText("Play Full Audio");
         waveform_widget_->setPlayheadPosition(-1.0);
@@ -229,7 +257,22 @@ void SampleChopperDialog::onSliceItemClicked(QListWidgetItem* item) {
     int row = slice_list_->row(item);
     if (row >= 0 && static_cast<size_t>(row) < current_slice_points_.size()) {
         const auto& sp = current_slice_points_[row];
-        waveform_widget_->setSelection(sp.start_sample, sp.end_sample);
+        double s_sec = static_cast<double>(sp.start_sample) / volsa2::VOLCA_SAMPLERATE;
+        double e_sec = static_cast<double>(sp.end_sample) / volsa2::VOLCA_SAMPLERATE;
+        start_crop_spin_->blockSignals(true);
+        end_crop_spin_->blockSignals(true);
+        start_crop_spin_->setValue(s_sec);
+        end_crop_spin_->setValue(e_sec);
+        start_crop_spin_->blockSignals(false);
+        end_crop_spin_->blockSignals(false);
+
+        if (showing_cropped_view_) {
+            auto slice_audio = volsa2::crop_audio(original_samples_, sp.start_sample, sp.end_sample, true);
+            waveform_widget_->setAudioData(slice_audio, volsa2::VOLCA_SAMPLERATE);
+            waveform_widget_->clearSelection();
+        } else {
+            waveform_widget_->setSelection(sp.start_sample, sp.end_sample);
+        }
         btn_play_slice_->setEnabled(true);
     }
 }
@@ -260,18 +303,81 @@ void SampleChopperDialog::onPlayFull() {
 void SampleChopperDialog::onAutoTrimSilence() {
     if (original_samples_.empty()) return;
     auto [start_bound, end_bound] = volsa2::find_silence_bounds(original_samples_, -48.0);
-    start_crop_spin_->setValue(static_cast<int>(start_bound));
-    end_crop_spin_->setValue(static_cast<int>(end_bound));
-    waveform_widget_->setSelection(start_bound, end_bound);
+    double s_sec = static_cast<double>(start_bound) / volsa2::VOLCA_SAMPLERATE;
+    double e_sec = static_cast<double>(end_bound) / volsa2::VOLCA_SAMPLERATE;
+
+    start_crop_spin_->blockSignals(true);
+    end_crop_spin_->blockSignals(true);
+    start_crop_spin_->setValue(s_sec);
+    end_crop_spin_->setValue(e_sec);
+    start_crop_spin_->blockSignals(false);
+    end_crop_spin_->blockSignals(false);
+
+    if (showing_cropped_view_) {
+        auto cropped = volsa2::crop_audio(original_samples_, start_bound, end_bound, true);
+        waveform_widget_->setAudioData(cropped, volsa2::VOLCA_SAMPLERATE);
+        waveform_widget_->clearSelection();
+    } else {
+        waveform_widget_->setSelection(start_bound, end_bound);
+    }
 }
 
 void SampleChopperDialog::onWaveformSelectionChanged(size_t start, size_t end) {
+    if (showing_cropped_view_) return;
+    double s_sec = static_cast<double>(start) / volsa2::VOLCA_SAMPLERATE;
+    double e_sec = static_cast<double>(end) / volsa2::VOLCA_SAMPLERATE;
     start_crop_spin_->blockSignals(true);
     end_crop_spin_->blockSignals(true);
-    start_crop_spin_->setValue(static_cast<int>(start));
-    end_crop_spin_->setValue(static_cast<int>(end));
+    start_crop_spin_->setValue(s_sec);
+    end_crop_spin_->setValue(e_sec);
     start_crop_spin_->blockSignals(false);
     end_crop_spin_->blockSignals(false);
+}
+
+void SampleChopperDialog::onCropSpinChanged() {
+    double s = start_crop_spin_->value();
+    double e = end_crop_spin_->value();
+    if (s > e) {
+        start_crop_spin_->blockSignals(true);
+        start_crop_spin_->setValue(e);
+        start_crop_spin_->blockSignals(false);
+        s = e;
+    }
+    size_t s_smpls = static_cast<size_t>(std::clamp(std::round(s * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(original_samples_.size())));
+    size_t e_smpls = static_cast<size_t>(std::clamp(std::round(e * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(original_samples_.size())));
+    if (showing_cropped_view_) {
+        auto cropped = volsa2::crop_audio(original_samples_, s_smpls, e_smpls, true);
+        waveform_widget_->setAudioData(cropped, volsa2::VOLCA_SAMPLERATE);
+        waveform_widget_->clearSelection();
+    } else {
+        waveform_widget_->setSelection(s_smpls, e_smpls);
+    }
+}
+
+void SampleChopperDialog::onToggleCropView() {
+    if (original_samples_.empty()) return;
+    showing_cropped_view_ = !showing_cropped_view_;
+    size_t s = static_cast<size_t>(std::clamp(std::round(start_crop_spin_->value() * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(original_samples_.size())));
+    size_t e = static_cast<size_t>(std::clamp(std::round(end_crop_spin_->value() * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(original_samples_.size())));
+
+    if (showing_cropped_view_) {
+        btn_toggle_crop_view_->setText("↩ Show Full Waveform");
+        btn_toggle_crop_view_->setStyleSheet("QPushButton { background-color: #00aa88; color: white; font-weight: bold; }");
+        waveform_widget_->setSelectionEnabled(false);
+        auto cropped = volsa2::crop_audio(original_samples_, s, e, true);
+        waveform_widget_->setAudioData(cropped, volsa2::VOLCA_SAMPLERATE);
+        waveform_widget_->clearSelection();
+    } else {
+        btn_toggle_crop_view_->setText("🔍 Preview Cropped");
+        btn_toggle_crop_view_->setStyleSheet("QPushButton { border-color: #00b4d8; color: #48cae4; font-weight: bold; }");
+        waveform_widget_->setAudioData(original_samples_, volsa2::VOLCA_SAMPLERATE);
+        waveform_widget_->setSelectionEnabled(true);
+        std::vector<size_t> markers;
+        for (const auto& sp : current_slice_points_) markers.push_back(sp.start_sample);
+        if (!current_slice_points_.empty()) markers.push_back(current_slice_points_.back().end_sample);
+        waveform_widget_->setSliceMarkers(markers);
+        waveform_widget_->setSelection(s, e);
+    }
 }
 
 void SampleChopperDialog::onCropInPlace() {
@@ -280,8 +386,8 @@ void SampleChopperDialog::onCropInPlace() {
         return;
     }
 
-    size_t s = static_cast<size_t>(start_crop_spin_->value());
-    size_t e = static_cast<size_t>(end_crop_spin_->value());
+    size_t s = static_cast<size_t>(std::clamp(std::round(start_crop_spin_->value() * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(original_samples_.size())));
+    size_t e = static_cast<size_t>(std::clamp(std::round(end_crop_spin_->value() * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(original_samples_.size())));
     auto cropped = volsa2::crop_audio(original_samples_, s, e, true);
 
     emit cropAndSaveRequested(source_slot_, original_name_, cropped);
