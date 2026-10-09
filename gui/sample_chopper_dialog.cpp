@@ -77,8 +77,8 @@ SampleChopperDialog::SampleChopperDialog(const std::vector<volsa2::SampleHeader>
     slice_config_layout->addWidget(btn_recompute);
 
     // Manual Trimming sub-panel
-    // Manual Trimming sub-panel
-    auto* crop_box = new QGroupBox("Region Crop (Start / End)");
+    // Selected slice boundary controls
+    auto* crop_box = new QGroupBox("Selected Slice Boundaries");
     auto* crop_layout = new QGridLayout(crop_box);
     crop_layout->addWidget(new QLabel("Start:"), 0, 0);
     start_crop_spin_ = new QDoubleSpinBox();
@@ -99,15 +99,26 @@ SampleChopperDialog::SampleChopperDialog(const std::vector<volsa2::SampleHeader>
     connect(end_crop_spin_, &QDoubleSpinBox::valueChanged, this, &SampleChopperDialog::onCropSpinChanged);
     crop_layout->addWidget(end_crop_spin_, 1, 1);
 
-    btn_auto_trim_ = new QPushButton("Auto-Trim Silence");
+    link_slices_check_ = new QCheckBox("Link adjacent slice boundaries");
+    link_slices_check_->setChecked(true);
+    link_slices_check_->setToolTip("When checked, adjusting a slice boundary also adjusts the neighboring slice so slices stay seamless.");
+    crop_layout->addWidget(link_slices_check_, 2, 0, 1, 2);
+
+    slice_info_label_ = new QLabel();
+    slice_info_label_->setStyleSheet("color: #00e5b0; font-size: 11px;");
+    crop_layout->addWidget(slice_info_label_, 3, 0, 1, 2);
+
+    btn_auto_trim_ = new QPushButton("Auto-Trim Slice Silence");
+    btn_auto_trim_->setToolTip("Snaps current slice start and end points tightly around audible sound in this slice.");
     connect(btn_auto_trim_, &QPushButton::clicked, this, &SampleChopperDialog::onAutoTrimSilence);
-    crop_layout->addWidget(btn_auto_trim_, 2, 0, 1, 2);
+    crop_layout->addWidget(btn_auto_trim_, 4, 0, 1, 2);
 
     if (source_slot >= 0) {
-        auto* btn_crop_in_place = new QPushButton("Crop & Overwrite Slot");
+        auto* btn_crop_in_place = new QPushButton("Save Slice to Slot");
+        btn_crop_in_place->setToolTip("Overwrite device source slot with only this selected slice.");
         btn_crop_in_place->setStyleSheet("font-weight: bold; color: #ffbb44;");
         connect(btn_crop_in_place, &QPushButton::clicked, this, &SampleChopperDialog::onCropInPlace);
-        crop_layout->addWidget(btn_crop_in_place, 3, 0, 1, 2);
+        crop_layout->addWidget(btn_crop_in_place, 5, 0, 1, 2);
     }
 
     slice_config_layout->addWidget(crop_box);
@@ -172,6 +183,7 @@ SampleChopperDialog::SampleChopperDialog(const std::vector<volsa2::SampleHeader>
     connect(slice_list_, &QListWidget::itemClicked, this, &SampleChopperDialog::onSliceItemClicked);
     connect(slice_list_, &QListWidget::currentRowChanged, this, &SampleChopperDialog::selectSlice);
     connect(waveform_widget_, &WaveformWidget::selectionChanged, this, &SampleChopperDialog::onWaveformSelectionChanged);
+    connect(waveform_widget_, &WaveformWidget::sliceDividerMoved, this, &SampleChopperDialog::onSliceDividerMoved);
     connect(waveform_widget_, &WaveformWidget::sliceClicked, this, [this](int s) {
         if (s >= 0 && static_cast<size_t>(s) < current_slice_points_.size()) {
             selectSlice(s);
@@ -218,16 +230,7 @@ void SampleChopperDialog::onRecomputeSlices() {
         current_slice_points_ = volsa2::detect_transient_slices(original_samples_, volsa2::VOLCA_SAMPLERATE, count, 0.5);
     }
 
-    // Set markers on waveform widget
-    std::vector<size_t> markers;
-    for (const auto& sp : current_slice_points_) {
-        markers.push_back(sp.start_sample);
-    }
-    if (!current_slice_points_.empty()) {
-        markers.push_back(current_slice_points_.back().end_sample);
-    }
-    waveform_widget_->setSliceMarkers(markers);
-
+    syncSliceSpansToWaveform();
     updateSliceList();
 
     if (!current_slice_points_.empty()) {
@@ -238,12 +241,21 @@ void SampleChopperDialog::onRecomputeSlices() {
     }
 }
 
+void SampleChopperDialog::syncSliceSpansToWaveform() {
+    std::vector<WaveformWidget::SliceSpan> spans;
+    spans.reserve(current_slice_points_.size());
+    for (const auto& sp : current_slice_points_) {
+        spans.push_back({sp.start_sample, sp.end_sample});
+    }
+    waveform_widget_->setSliceSpans(spans);
+}
+
 void SampleChopperDialog::updateSliceList() {
     slice_list_->blockSignals(true);
     slice_list_->clear();
     for (size_t i = 0; i < current_slice_points_.size(); ++i) {
         const auto& sp = current_slice_points_[i];
-        size_t len = sp.end_sample - sp.start_sample;
+        size_t len = sp.length();
         double dur = static_cast<double>(len) / volsa2::VOLCA_SAMPLERATE;
 
         QString item_text = QString("Slice %1: [%2 - %3] (%4 smpls, %5s)")
@@ -256,6 +268,22 @@ void SampleChopperDialog::updateSliceList() {
     }
     slice_list_->blockSignals(false);
     btn_play_slice_->setEnabled(slice_list_->count() > 0 && slice_list_->currentRow() >= 0);
+}
+
+void SampleChopperDialog::updateSliceListItem(int row) {
+    if (row < 0 || static_cast<size_t>(row) >= current_slice_points_.size()) return;
+    const auto& sp = current_slice_points_[row];
+    size_t len = sp.length();
+    double dur = static_cast<double>(len) / volsa2::VOLCA_SAMPLERATE;
+    QString item_text = QString("Slice %1: [%2 - %3] (%4 smpls, %5s)")
+                            .arg(row + 1)
+                            .arg(sp.start_sample)
+                            .arg(sp.end_sample)
+                            .arg(len)
+                            .arg(QString::number(dur, 'f', 2));
+    if (auto* item = slice_list_->item(row)) {
+        item->setText(item_text);
+    }
 }
 
 void SampleChopperDialog::selectSlice(int row) {
@@ -276,8 +304,73 @@ void SampleChopperDialog::selectSlice(int row) {
     start_crop_spin_->blockSignals(false);
     end_crop_spin_->blockSignals(false);
 
+    waveform_widget_->blockSignals(true);
     waveform_widget_->setSelection(sp.start_sample, sp.end_sample);
+    waveform_widget_->blockSignals(false);
+
+    if (slice_info_label_) {
+        size_t len = sp.length();
+        double dur = static_cast<double>(len) / volsa2::VOLCA_SAMPLERATE;
+        slice_info_label_->setText(QString("Slice %1: %2s (%3 smpls)")
+                                       .arg(row + 1)
+                                       .arg(QString::number(dur, 'f', 3))
+                                       .arg(len));
+    }
+
     btn_play_slice_->setEnabled(true);
+}
+
+void SampleChopperDialog::updateCurrentSliceBounds(size_t start, size_t end) {
+    int row = slice_list_->currentRow();
+    if (row < 0 || static_cast<size_t>(row) >= current_slice_points_.size()) return;
+
+    size_t total = original_samples_.size();
+    size_t s = std::clamp(start, size_t{0}, total);
+    size_t e = std::clamp(end, size_t{0}, total);
+    if (s > e) std::swap(s, e);
+
+    bool link = link_slices_check_ && link_slices_check_->isChecked();
+
+    if (link) {
+        if (row > 0) {
+            s = std::max(s, current_slice_points_[row - 1].start_sample);
+            current_slice_points_[row - 1].end_sample = s;
+            current_slice_points_[row - 1].end_seconds = static_cast<double>(s) / volsa2::VOLCA_SAMPLERATE;
+            updateSliceListItem(row - 1);
+        }
+        if (static_cast<size_t>(row + 1) < current_slice_points_.size()) {
+            e = std::min(e, current_slice_points_[row + 1].end_sample);
+            current_slice_points_[row + 1].start_sample = e;
+            current_slice_points_[row + 1].start_seconds = static_cast<double>(e) / volsa2::VOLCA_SAMPLERATE;
+            updateSliceListItem(row + 1);
+        }
+    }
+
+    current_slice_points_[row].start_sample = s;
+    current_slice_points_[row].end_sample = e;
+    current_slice_points_[row].start_seconds = static_cast<double>(s) / volsa2::VOLCA_SAMPLERATE;
+    current_slice_points_[row].end_seconds = static_cast<double>(e) / volsa2::VOLCA_SAMPLERATE;
+    updateSliceListItem(row);
+
+    double s_sec = static_cast<double>(s) / volsa2::VOLCA_SAMPLERATE;
+    double e_sec = static_cast<double>(e) / volsa2::VOLCA_SAMPLERATE;
+    start_crop_spin_->blockSignals(true);
+    end_crop_spin_->blockSignals(true);
+    start_crop_spin_->setValue(s_sec);
+    end_crop_spin_->setValue(e_sec);
+    start_crop_spin_->blockSignals(false);
+    end_crop_spin_->blockSignals(false);
+
+    if (slice_info_label_) {
+        size_t len = current_slice_points_[row].length();
+        double dur = static_cast<double>(len) / volsa2::VOLCA_SAMPLERATE;
+        slice_info_label_->setText(QString("Slice %1: %2s (%3 smpls)")
+                                       .arg(row + 1)
+                                       .arg(QString::number(dur, 'f', 3))
+                                       .arg(len));
+    }
+
+    syncSliceSpansToWaveform();
 }
 
 void SampleChopperDialog::onSliceItemClicked(QListWidgetItem* item) {
@@ -313,29 +406,27 @@ void SampleChopperDialog::onPlayFull() {
 
 void SampleChopperDialog::onAutoTrimSilence() {
     if (original_samples_.empty()) return;
-    auto [start_bound, end_bound] = volsa2::find_silence_bounds(original_samples_, -48.0);
-    double s_sec = static_cast<double>(start_bound) / volsa2::VOLCA_SAMPLERATE;
-    double e_sec = static_cast<double>(end_bound) / volsa2::VOLCA_SAMPLERATE;
+    int row = slice_list_->currentRow();
+    if (row < 0 || static_cast<size_t>(row) >= current_slice_points_.size()) return;
 
-    start_crop_spin_->blockSignals(true);
-    end_crop_spin_->blockSignals(true);
-    start_crop_spin_->setValue(s_sec);
-    end_crop_spin_->setValue(e_sec);
-    start_crop_spin_->blockSignals(false);
-    end_crop_spin_->blockSignals(false);
+    const auto& sp = current_slice_points_[row];
+    if (sp.end_sample <= sp.start_sample) return;
 
-    waveform_widget_->setSelection(start_bound, end_bound);
+    std::span<const int16_t> slice_span(original_samples_.data() + sp.start_sample, sp.end_sample - sp.start_sample);
+    auto [rel_start, rel_end] = volsa2::find_silence_bounds(slice_span, -48.0);
+
+    size_t abs_start = sp.start_sample + rel_start;
+    size_t abs_end = sp.start_sample + rel_end;
+
+    waveform_widget_->blockSignals(true);
+    waveform_widget_->setSelection(abs_start, abs_end);
+    waveform_widget_->blockSignals(false);
+
+    updateCurrentSliceBounds(abs_start, abs_end);
 }
 
 void SampleChopperDialog::onWaveformSelectionChanged(size_t start, size_t end) {
-    double s_sec = static_cast<double>(start) / volsa2::VOLCA_SAMPLERATE;
-    double e_sec = static_cast<double>(end) / volsa2::VOLCA_SAMPLERATE;
-    start_crop_spin_->blockSignals(true);
-    end_crop_spin_->blockSignals(true);
-    start_crop_spin_->setValue(s_sec);
-    end_crop_spin_->setValue(e_sec);
-    start_crop_spin_->blockSignals(false);
-    end_crop_spin_->blockSignals(false);
+    updateCurrentSliceBounds(start, end);
 }
 
 void SampleChopperDialog::onCropSpinChanged() {
@@ -349,20 +440,72 @@ void SampleChopperDialog::onCropSpinChanged() {
     }
     size_t s_smpls = static_cast<size_t>(std::clamp(std::round(s * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(original_samples_.size())));
     size_t e_smpls = static_cast<size_t>(std::clamp(std::round(e * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(original_samples_.size())));
+
+    waveform_widget_->blockSignals(true);
     waveform_widget_->setSelection(s_smpls, e_smpls);
+    waveform_widget_->blockSignals(false);
+
+    updateCurrentSliceBounds(s_smpls, e_smpls);
+}
+
+void SampleChopperDialog::onSliceDividerMoved(int divider_idx, size_t new_sample) {
+    if (divider_idx <= 0 || static_cast<size_t>(divider_idx) >= current_slice_points_.size()) return;
+
+    current_slice_points_[divider_idx - 1].end_sample = new_sample;
+    current_slice_points_[divider_idx - 1].end_seconds = static_cast<double>(new_sample) / volsa2::VOLCA_SAMPLERATE;
+
+    current_slice_points_[divider_idx].start_sample = new_sample;
+    current_slice_points_[divider_idx].start_seconds = static_cast<double>(new_sample) / volsa2::VOLCA_SAMPLERATE;
+
+    updateSliceListItem(divider_idx - 1);
+    updateSliceListItem(divider_idx);
+
+    int cur_row = slice_list_->currentRow();
+    if (cur_row == divider_idx - 1) {
+        end_crop_spin_->blockSignals(true);
+        end_crop_spin_->setValue(current_slice_points_[cur_row].end_seconds);
+        end_crop_spin_->blockSignals(false);
+        waveform_widget_->blockSignals(true);
+        waveform_widget_->setSelection(current_slice_points_[cur_row].start_sample, current_slice_points_[cur_row].end_sample);
+        waveform_widget_->blockSignals(false);
+    } else if (cur_row == divider_idx) {
+        start_crop_spin_->blockSignals(true);
+        start_crop_spin_->setValue(current_slice_points_[cur_row].start_seconds);
+        start_crop_spin_->blockSignals(false);
+        waveform_widget_->blockSignals(true);
+        waveform_widget_->setSelection(current_slice_points_[cur_row].start_sample, current_slice_points_[cur_row].end_sample);
+        waveform_widget_->blockSignals(false);
+    }
+
+    if (slice_info_label_ && cur_row >= 0 && static_cast<size_t>(cur_row) < current_slice_points_.size()) {
+        size_t len = current_slice_points_[cur_row].length();
+        double dur = static_cast<double>(len) / volsa2::VOLCA_SAMPLERATE;
+        slice_info_label_->setText(QString("Slice %1: %2s (%3 smpls)")
+                                       .arg(cur_row + 1)
+                                       .arg(QString::number(dur, 'f', 3))
+                                       .arg(len));
+    }
+
+    syncSliceSpansToWaveform();
 }
 
 void SampleChopperDialog::onCropInPlace() {
     if (source_slot_ < 0) {
-        QMessageBox::warning(this, "Crop in Place", "This sample did not originate from a device slot.");
+        QMessageBox::warning(this, "Save Slice to Slot", "This sample did not originate from a device slot.");
         return;
     }
 
-    size_t s = static_cast<size_t>(std::clamp(std::round(start_crop_spin_->value() * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(original_samples_.size())));
-    size_t e = static_cast<size_t>(std::clamp(std::round(end_crop_spin_->value() * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(original_samples_.size())));
-    auto cropped = volsa2::crop_audio(original_samples_, s, e, true);
+    int row = slice_list_->currentRow();
+    if (row < 0 || static_cast<size_t>(row) >= current_slice_points_.size()) {
+        QMessageBox::warning(this, "Save Slice to Slot", "Please select a slice to save.");
+        return;
+    }
 
-    emit cropAndSaveRequested(source_slot_, original_name_, cropped);
+    const auto& sp = current_slice_points_[row];
+    auto cropped = volsa2::crop_audio(original_samples_, sp.start_sample, sp.end_sample, true);
+
+    QString name = QString("%1_s%2").arg(original_name_).arg(row + 1);
+    emit cropAndSaveRequested(source_slot_, name, cropped);
     accept();
 }
 

@@ -78,6 +78,17 @@ public:
      */
     void getSelection(size_t& out_start, size_t& out_end) const;
 
+    struct SliceSpan {
+        size_t start{0};
+        size_t end{0};
+    };
+
+    /**
+     * @brief Sets slice point spans for beat slicing display and interaction.
+     * @param spans List of {start_sample, end_sample} boundaries for each slice.
+     */
+    void setSliceSpans(const std::vector<SliceSpan>& spans);
+
     /**
      * @brief Sets slice point markers for beat slicing display.
      * @param slice_sample_indices Sample indices of slice boundaries.
@@ -109,6 +120,13 @@ signals:
      */
     void sliceClicked(int slice_index);
 
+    /**
+     * @brief Emitted when an interior slice divider marker is dragged.
+     * @param divider_index Divider index (1 to N-1).
+     * @param new_sample New sample index position.
+     */
+    void sliceDividerMoved(int divider_index, size_t new_sample);
+
 protected:
     void paintEvent(QPaintEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
@@ -125,6 +143,7 @@ private:
         Seek,
         DragStartMarker,
         DragEndMarker,
+        DragSliceDivider,
         SelectNew
     };
 
@@ -140,4 +159,6 @@ private:
     int drag_anchor_x_{0};              ///< Anchor pixel for new selection dragging.
 
     std::vector<size_t> slice_markers_; ///< Slice sample boundary markers.
+    std::vector<SliceSpan> slice_spans_;///< Detailed slice boundary intervals.
+    int dragged_divider_idx_{-1};       ///< Index of divider currently being dragged.
 };

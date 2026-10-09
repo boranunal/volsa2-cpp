@@ -18,6 +18,7 @@
 #include <QSpinBox>
 #include <QDoubleSpinBox>
 #include <QComboBox>
+#include <QCheckBox>
 #include <QLabel>
 #include <QPushButton>
 #include <vector>
@@ -59,11 +60,15 @@ private slots:
     void onAutoTrimSilence();
     void onWaveformSelectionChanged(size_t start, size_t end);
     void onCropSpinChanged();
+    void onSliceDividerMoved(int divider_index, size_t new_sample);
     void onCropInPlace();
     void onExportSlices();
 
 private:
     void updateSliceList();
+    void updateSliceListItem(int row);
+    void updateCurrentSliceBounds(size_t start_sample, size_t end_sample);
+    void syncSliceSpansToWaveform();
     bool is_playing_slice_{false};
 
     std::vector<volsa2::SampleHeader> current_slots_;
@@ -81,6 +86,8 @@ private:
     // Crop inputs
     QDoubleSpinBox* start_crop_spin_{nullptr};///< Crop start in seconds
     QDoubleSpinBox* end_crop_spin_{nullptr};  ///< Crop end in seconds
+    QCheckBox* link_slices_check_{nullptr};   ///< Link adjacent slice boundaries
+    QLabel* slice_info_label_{nullptr};       ///< Readout of selected slice duration & samples
     QPushButton* btn_auto_trim_{nullptr};
 
     // Playback

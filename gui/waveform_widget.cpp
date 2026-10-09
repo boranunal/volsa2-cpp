@@ -90,12 +90,29 @@ void WaveformWidget::getSelection(size_t& out_start, size_t& out_end) const {
     out_end = sel_end_;
 }
 
+void WaveformWidget::setSliceSpans(const std::vector<SliceSpan>& spans) {
+    slice_spans_ = spans;
+    slice_markers_.clear();
+    for (const auto& span : spans) {
+        slice_markers_.push_back(span.start);
+    }
+    if (!spans.empty()) {
+        slice_markers_.push_back(spans.back().end);
+    }
+    update();
+}
+
 void WaveformWidget::setSliceMarkers(const std::vector<size_t>& slice_sample_indices) {
     slice_markers_ = slice_sample_indices;
+    slice_spans_.clear();
+    for (size_t i = 0; i + 1 < slice_sample_indices.size(); ++i) {
+        slice_spans_.push_back({slice_sample_indices[i], slice_sample_indices[i + 1]});
+    }
     update();
 }
 
 void WaveformWidget::clearSliceMarkers() {
+    slice_spans_.clear();
     slice_markers_.clear();
     update();
 }
@@ -133,8 +150,38 @@ void WaveformWidget::mousePressEvent(QMouseEvent* event) {
         }
     }
 
-    // 2. If slice markers exist, check if a slice was clicked
-    if (!slice_markers_.empty()) {
+    // 2. Check if user clicked near an interior slice divider line to drag it directly!
+    if (!slice_spans_.empty()) {
+        for (size_t s = 1; s < slice_spans_.size(); ++s) {
+            int div_x = sampleToPixel(slice_spans_[s].start);
+            if (std::abs(x - div_x) <= 5) {
+                drag_mode_ = DragMode::DragSliceDivider;
+                dragged_divider_idx_ = static_cast<int>(s);
+                return;
+            }
+        }
+    } else if (!slice_markers_.empty()) {
+        for (size_t s = 1; s + 1 < slice_markers_.size(); ++s) {
+            int div_x = sampleToPixel(slice_markers_[s]);
+            if (std::abs(x - div_x) <= 5) {
+                drag_mode_ = DragMode::DragSliceDivider;
+                dragged_divider_idx_ = static_cast<int>(s);
+                return;
+            }
+        }
+    }
+
+    // 3. If slice spans/markers exist, check if a slice was clicked to select
+    if (!slice_spans_.empty()) {
+        for (size_t s = 0; s < slice_spans_.size(); ++s) {
+            if (clicked_sample >= slice_spans_[s].start &&
+                (clicked_sample < slice_spans_[s].end || (s + 1 == slice_spans_.size() && clicked_sample <= slice_spans_[s].end))) {
+                drag_mode_ = DragMode::None;
+                emit sliceClicked(static_cast<int>(s));
+                return;
+            }
+        }
+    } else if (!slice_markers_.empty()) {
         for (size_t s = 0; s + 1 < slice_markers_.size(); ++s) {
             if (clicked_sample >= slice_markers_[s] &&
                 (clicked_sample < slice_markers_[s + 1] || (s + 2 == slice_markers_.size() && clicked_sample <= slice_markers_[s + 1]))) {
@@ -166,12 +213,38 @@ void WaveformWidget::mouseMoveEvent(QMouseEvent* event) {
     int x = static_cast<int>(event->position().x());
 
     // Update cursor hover indicator
-    if (drag_mode_ == DragMode::None && selection_enabled_ && has_selection_) {
-        int x_start = sampleToPixel(sel_start_);
-        int x_end = sampleToPixel(sel_end_);
-        if (std::abs(x - x_start) <= 6 || std::abs(x - x_end) <= 6) {
-            setCursor(Qt::SizeHorCursor);
-        } else {
+    if (drag_mode_ == DragMode::None) {
+        bool hover_hand = false;
+        if (selection_enabled_ && has_selection_) {
+            int x_start = sampleToPixel(sel_start_);
+            int x_end = sampleToPixel(sel_end_);
+            if (std::abs(x - x_start) <= 6 || std::abs(x - x_end) <= 6) {
+                setCursor(Qt::SizeHorCursor);
+                hover_hand = true;
+            }
+        }
+        if (!hover_hand) {
+            if (!slice_spans_.empty()) {
+                for (size_t s = 1; s < slice_spans_.size(); ++s) {
+                    int div_x = sampleToPixel(slice_spans_[s].start);
+                    if (std::abs(x - div_x) <= 5) {
+                        setCursor(Qt::SplitHCursor);
+                        hover_hand = true;
+                        break;
+                    }
+                }
+            } else if (!slice_markers_.empty()) {
+                for (size_t s = 1; s + 1 < slice_markers_.size(); ++s) {
+                    int div_x = sampleToPixel(slice_markers_[s]);
+                    if (std::abs(x - div_x) <= 5) {
+                        setCursor(Qt::SplitHCursor);
+                        hover_hand = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (!hover_hand) {
             setCursor(Qt::ArrowCursor);
         }
     }
@@ -190,6 +263,19 @@ void WaveformWidget::mouseMoveEvent(QMouseEvent* event) {
         has_selection_ = true;
         update();
         emit selectionChanged(sel_start_, sel_end_);
+    } else if (drag_mode_ == DragMode::DragSliceDivider) {
+        size_t new_smpl = pixelToSample(x);
+        if (!slice_spans_.empty() && dragged_divider_idx_ > 0 && static_cast<size_t>(dragged_divider_idx_) < slice_spans_.size()) {
+            size_t min_s = slice_spans_[dragged_divider_idx_ - 1].start + 32;
+            size_t max_s = (slice_spans_[dragged_divider_idx_].end > 32) ? (slice_spans_[dragged_divider_idx_].end - 32) : slice_spans_[dragged_divider_idx_].end;
+            new_smpl = std::clamp(new_smpl, min_s, max_s);
+            emit sliceDividerMoved(dragged_divider_idx_, new_smpl);
+        } else if (!slice_markers_.empty() && dragged_divider_idx_ > 0 && static_cast<size_t>(dragged_divider_idx_ + 1) < slice_markers_.size()) {
+            size_t min_s = slice_markers_[dragged_divider_idx_ - 1] + 32;
+            size_t max_s = (slice_markers_[dragged_divider_idx_ + 1] > 32) ? (slice_markers_[dragged_divider_idx_ + 1] - 32) : slice_markers_[dragged_divider_idx_ + 1];
+            new_smpl = std::clamp(new_smpl, min_s, max_s);
+            emit sliceDividerMoved(dragged_divider_idx_, new_smpl);
+        }
     } else if (drag_mode_ == DragMode::SelectNew) {
         size_t cur_sample = pixelToSample(x);
         size_t anchor_sample = pixelToSample(drag_anchor_x_);
@@ -208,6 +294,7 @@ void WaveformWidget::mouseMoveEvent(QMouseEvent* event) {
 
 void WaveformWidget::mouseReleaseEvent(QMouseEvent* /*event*/) {
     drag_mode_ = DragMode::None;
+    dragged_divider_idx_ = -1;
     setCursor(Qt::ArrowCursor);
 }
 
@@ -303,7 +390,26 @@ void WaveformWidget::paintEvent(QPaintEvent* /*event*/) {
     }
 
     // 4. Render slice boundary markers
-    if (!slice_markers_.empty()) {
+    if (!slice_spans_.empty()) {
+        p.setRenderHint(QPainter::Antialiasing, true);
+        QFont font = p.font();
+        font.setPointSize(8);
+        p.setFont(font);
+
+        for (size_t s = 0; s < slice_spans_.size(); ++s) {
+            int sx = sampleToPixel(slice_spans_[s].start);
+            int ex = sampleToPixel(slice_spans_[s].end);
+            p.setPen(QPen(QColor(0, 210, 255, 180), 1, Qt::DashLine));
+            p.drawLine(sx, 0, sx, h);
+            if (s + 1 == slice_spans_.size() || slice_spans_[s].end != slice_spans_[s + 1].start) {
+                p.drawLine(ex, 0, ex, h);
+            }
+
+            int center_x = (sx + ex) / 2;
+            p.setPen(QColor(0, 210, 255));
+            p.drawText(QRect(center_x - 12, h - 18, 24, 16), Qt::AlignCenter, QString("[%1]").arg(s + 1));
+        }
+    } else if (!slice_markers_.empty()) {
         p.setRenderHint(QPainter::Antialiasing, true);
         p.setPen(QPen(QColor(0, 210, 255, 180), 1, Qt::DashLine));
         QFont font = p.font();
