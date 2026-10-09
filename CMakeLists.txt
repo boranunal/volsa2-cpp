@@ -44,6 +44,7 @@ target_link_libraries(volsa2_core PUBLIC
 # CLI Binary
 add_executable(volsa2-cli cli/main.cpp)
 target_link_libraries(volsa2-cli PRIVATE volsa2_core)
+install(TARGETS volsa2-cli RUNTIME DESTINATION bin)
 
 # Tests
 enable_testing()
@@ -81,7 +82,7 @@ option(BUILD_GUI "Build Qt GUI application" ON)
 
 if (BUILD_GUI)
     list(APPEND CMAKE_PREFIX_PATH "/usr/local/Qt-6.9.1")
-    find_package(Qt6 COMPONENTS Core Gui Widgets Multimedia)
+    find_package(Qt6 COMPONENTS Core Gui Widgets)
     if (Qt6_FOUND)
         message(STATUS "Qt6 found (${Qt6_VERSION}). Building Qt GUI.")
         add_subdirectory(gui)
@@ -89,3 +90,14 @@ if (BUILD_GUI)
         message(WARNING "Qt6 not found. Skipping GUI build.")
     endif()
 endif()
+
+# CPack Packaging Configuration
+set(CPACK_PACKAGE_NAME "volsa2")
+set(CPACK_PACKAGE_VENDOR "Volsa2 Project Team")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Librarian and audio processing engine for KORG Volca Sample 2")
+set(CPACK_PACKAGE_VERSION_MAJOR "2")
+set(CPACK_PACKAGE_VERSION_MINOR "0")
+set(CPACK_PACKAGE_VERSION_PATCH "0")
+set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}.${CPACK_PACKAGE_VERSION_PATCH}-linux-x86_64")
+set(CPACK_GENERATOR "TGZ;STGZ")
+include(CPack)

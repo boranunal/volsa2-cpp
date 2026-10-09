@@ -19,6 +19,9 @@
 Q_DECLARE_METATYPE(volsa2::SampleHeader)
 Q_DECLARE_METATYPE(std::vector<volsa2::SampleHeader>)
 Q_DECLARE_METATYPE(std::vector<int16_t>)
+Q_DECLARE_METATYPE(volsa2::PatternData)
+Q_DECLARE_METATYPE(std::vector<volsa2::PatternData>)
+Q_DECLARE_METATYPE(std::vector<int>)
 
 /**
  * @class DeviceWorker
@@ -59,6 +62,11 @@ public slots:
     void refreshAllSlots();
 
     /**
+     * @brief Iterates through all 16 sequencer patterns, downloading pattern data from device.
+     */
+    void refreshAllPatterns();
+
+    /**
      * @brief Downloads PCM audio sample data for a single slot.
      * @param slot Slot index (0-199).
      */
@@ -71,6 +79,13 @@ public slots:
      * @param data 16-bit signed mono PCM samples at 31,250 Hz.
      */
     void uploadSample(int slot, const QString& name, const std::vector<int16_t>& data);
+
+    /**
+     * @brief Uploads a single pattern to the device.
+     * @param slot Pattern slot index (0-15).
+     * @param pattern PatternData containing 7,936 bytes binary payload.
+     */
+    void uploadPattern(int slot, const volsa2::PatternData& pattern);
 
     /**
      * @brief Erases a sample slot on the device by transmitting an empty header.
@@ -86,10 +101,17 @@ public slots:
     void downloadSample(int slot, const QString& filePath);
 
     /**
-     * @brief Batch downloads all non-empty sample slots into a target folder.
-     * @param destinationDir Directory path where WAV files should be saved.
+     * @brief Downloads multiple samples from the device into a destination directory.
+     * @param slot_indices Collection of slot indices to download.
+     * @param targetDir Destination directory path on disk.
      */
-    void downloadAllSamples(const QString& destinationDir);
+    void downloadSamples(const std::vector<int>& slot_indices, const QString& targetDir);
+
+    /**
+     * @brief Erases multiple sample slots sequentially on the device.
+     * @param slot_indices Collection of slot indices to erase.
+     */
+    void deleteSamples(const std::vector<int>& slot_indices);
 
     /**
      * @brief Downloads all 16 patterns and 200 samples and archives them into an .ivlcsplpreset file.
@@ -98,6 +120,15 @@ public slots:
      * @param author Creator or sound designer name.
      */
     void downloadPackage(const QString& filePath, const QString& presetName, const QString& author);
+
+    /**
+     * @brief Uploads an .ivlcsplpreset package file to the device.
+     * @param filePath Target package file on disk.
+     * @param uploadSamples Whether to transmit sample headers and audio.
+     * @param uploadPatterns Whether to transmit all 16 sequencer patterns.
+     * @param eraseEmpty Whether to erase slots that are empty in the package.
+     */
+    void uploadPackage(const QString& filePath, bool uploadSamples = true, bool uploadPatterns = true, bool eraseEmpty = true);
 
 signals:
     /** @brief Emitted when connection and inquiry handshake succeed. */
@@ -118,6 +149,15 @@ signals:
     /** @brief Emitted when a full scan of all 200 slots has completed. */
     void allSlotsLoaded(const std::vector<volsa2::SampleHeader>& headers);
 
+    /** @brief Emitted when an individual pattern has been retrieved from the device. */
+    void patternLoaded(int slot, const volsa2::PatternData& pattern);
+
+    /** @brief Emitted when all 16 patterns have been retrieved from the device. */
+    void allPatternsLoaded(const std::vector<volsa2::PatternData>& patterns);
+
+    /** @brief Emitted after a pattern has been successfully uploaded to the device. */
+    void patternUploaded(int slot, const QString& name);
+
     /** @brief Emitted during multi-step transfers to update progress indicators. */
     void progress(int current, int total, const QString& statusText);
 
@@ -135,6 +175,9 @@ signals:
 
     /** @brief Emitted when an entire .ivlcsplpreset library package has been written to disk. */
     void packageDownloaded(const QString& filePath);
+
+    /** @brief Emitted when an entire .ivlcsplpreset library package has been uploaded to the device. */
+    void packageUploaded(const QString& filePath);
 
     /** @brief Emitted after a batch operation (e.g. download all) completes. */
     void batchFinished(const QString& message);

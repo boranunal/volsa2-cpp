@@ -21,6 +21,7 @@
 #include <QCheckBox>
 #include <QLabel>
 #include <QPushButton>
+#include <QLineEdit>
 #include <vector>
 #include <cstdint>
 
@@ -61,7 +62,8 @@ private slots:
     void onWaveformSelectionChanged(size_t start, size_t end);
     void onCropSpinChanged();
     void onSliceDividerMoved(int divider_index, size_t new_sample);
-    void onCropInPlace();
+    void onSaveSelectedSlice(bool close_after = false);
+    void onTargetSlotChanged(int slot);
     void onExportSlices();
 
 private:
@@ -69,6 +71,8 @@ private:
     void updateSliceListItem(int row);
     void updateCurrentSliceBounds(size_t start_sample, size_t end_sample);
     void syncSliceSpansToWaveform();
+    int findNextEmptySlot(int start_from = 0) const;
+    void updateTargetSlotStatus();
     bool is_playing_slice_{false};
 
     std::vector<volsa2::SampleHeader> current_slots_;
@@ -89,6 +93,14 @@ private:
     QCheckBox* link_slices_check_{nullptr};   ///< Link adjacent slice boundaries
     QLabel* slice_info_label_{nullptr};       ///< Readout of selected slice duration & samples
     QPushButton* btn_auto_trim_{nullptr};
+
+    // Save selected slice to custom slot
+    QSpinBox* target_slot_spin_{nullptr};         ///< Target Volca slot index for saving current slice
+    QLabel* target_slot_status_label_{nullptr};   ///< Status indication for selected target slot
+    QLineEdit* slice_name_edit_{nullptr};         ///< Name for the slice on the device
+    QPushButton* btn_save_slice_{nullptr};        ///< Save slice to target slot
+    QPushButton* btn_save_and_close_{nullptr};    ///< Save slice to target slot and close
+    QLabel* save_feedback_label_{nullptr};        ///< Notification readout upon saving
 
     // Playback
     QPushButton* btn_play_slice_{nullptr};

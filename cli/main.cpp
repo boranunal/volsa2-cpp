@@ -34,7 +34,9 @@ void print_help(const char* prog) {
               << "                             Upload audio file to device slot (mode: mid, left, right, side)\n"
               << "  remove, rm <slot> [-p]     Remove sample at slot (-p to print name)\n"
               << "  download-package, pkg-dl <file.ivlcsplpreset> [--name <name>] [--author <author>]\n"
-              << "                             Download complete package (all 16 patterns and 200 samples)\n\n"
+              << "                             Download complete package (all 16 patterns and 200 samples)\n"
+              << "  upload-package, pkg-up <file.ivlcsplpreset> [-y] [--samples-only] [--patterns-only] [--clear-empty] [--dry-run]\n"
+              << "                             Upload complete package to device\n\n"
               << "Options:\n"
               << "  -c, --cooldown <ms>        Chunk cooldown in ms (default: 10)\n"
               << "  -h, --help                 Print help information\n";
@@ -361,6 +363,166 @@ int main(int argc, char* argv[]) {
             std::cout << "[4/4] Packing into " << out_file << "...\n";
             volsa2::save_package(out_file, pkg);
             std::cout << "Done! Package saved successfully (" << fs::file_size(out_file) << " bytes).\n";
+        }
+        else if (cmd == "upload-package" || cmd == "pkg-up") {
+            if (arg_idx >= argc) {
+                std::cerr << "Error: upload-package requires <file.ivlcsplpreset>\n";
+                return 1;
+            }
+            fs::path in_file = argv[arg_idx++];
+            if (!fs::exists(in_file)) {
+                std::cerr << "Error: Package file not found: " << in_file << "\n";
+                return 1;
+            }
+
+            bool samples_only = false;
+            bool patterns_only = false;
+            bool clear_empty = true; // Clean restore by default to prevent filling device memory
+            bool dry_run = false;
+            bool auto_yes = false;
+
+            for (; arg_idx < argc; ++arg_idx) {
+                std::string a = argv[arg_idx];
+                if (a == "-y" || a == "--yes") {
+                    auto_yes = true;
+                } else if (a == "--samples-only") {
+                    samples_only = true;
+                } else if (a == "--patterns-only") {
+                    patterns_only = true;
+                } else if (a == "--clear-empty" || a == "--erase-empty") {
+                    clear_empty = true;
+                } else if (a == "--keep-existing") {
+                    clear_empty = false;
+                } else if (a == "--dry-run") {
+                    dry_run = true;
+                } else {
+                    std::cerr << "Unknown option for upload-package: " << a << "\n";
+                    return 1;
+                }
+            }
+
+            if (samples_only && patterns_only) {
+                std::cerr << "Error: Cannot specify both --samples-only and --patterns-only\n";
+                return 1;
+            }
+
+            std::cout << "Loading package: " << in_file << "...\n";
+            auto pkg = volsa2::load_package(in_file);
+
+            std::vector<uint8_t> active_slots;
+            std::vector<bool> is_pkg_active(200, false);
+            for (uint8_t i = 0; i < 200; ++i) {
+                if (pkg.samples[i].data.has_value() && !pkg.samples[i].data->data.empty()) {
+                    active_slots.push_back(i);
+                    is_pkg_active[i] = true;
+                }
+            }
+
+            std::cout << "Package Information:\n"
+                      << "  Name:           " << (pkg.info.name.empty() ? "(none)" : pkg.info.name) << "\n"
+                      << "  Author:         " << (pkg.info.author.empty() ? "(none)" : pkg.info.author) << "\n"
+                      << "  Date:           " << (pkg.info.date.empty() ? "(none)" : pkg.info.date) << "\n"
+                      << "  Patterns:       " << pkg.programs.size() << " sequencer patterns\n"
+                      << "  Active Samples: " << active_slots.size() << " of 200 slots\n\n";
+
+            if (dry_run) {
+                std::cout << "--- Dry Run Summary ---\n";
+                if (!samples_only) {
+                    std::cout << "Patterns to upload (" << pkg.programs.size() << "):\n";
+                    for (size_t i = 0; i < pkg.programs.size(); ++i) {
+                        std::cout << "  Pattern " << std::setw(2) << (i + 1)
+                                  << " (slot " << std::setw(2) << i << "): \""
+                                  << pkg.programs[i].pattern.name << "\"\n";
+                    }
+                }
+                if (!patterns_only) {
+                    std::cout << "Samples to upload (" << active_slots.size() << "):\n";
+                    for (uint8_t slot : active_slots) {
+                        const auto& h = pkg.samples[slot].header;
+                        std::cout << "  Slot " << std::setw(3) << static_cast<int>(slot) << ": "
+                                  << std::left << std::setw(24) << (h.name.empty() ? "<unnamed>" : h.name) << std::right
+                                  << " - " << std::setw(8) << h.length << " samples ("
+                                  << std::fixed << std::setprecision(2) << (h.length / 31250.0) << "s), "
+                                  << "speed: " << h.speed << ", level: " << h.level << "\n";
+                    }
+                    if (clear_empty) {
+                        std::cout << "Clean restore: will scan and erase old unused slots before uploading.\n";
+                    }
+                }
+                std::cout << "Dry run completed. No data sent to device.\n";
+                return 0;
+            }
+
+            if (!auto_yes) {
+                std::string warning = "WARNING: Uploading this package will overwrite ";
+                if (samples_only) warning += "samples";
+                else if (patterns_only) warning += "patterns";
+                else warning += "samples and patterns";
+                warning += " on your Volca Sample 2. Continue?";
+                if (!ask_yn(warning)) {
+                    std::cout << "Operation aborted.\n";
+                    return 0;
+                }
+            }
+
+            device.connect();
+            std::cout << "Connected to Volca Sample 2 (Channel " << static_cast<int>(device.channel().as_u8())
+                      << ", Firmware " << device.version().to_string() << ")\n";
+
+            // Upload Samples
+            if (!patterns_only) {
+                // Free memory FIRST: erase occupied slots on device that are empty in the package
+                if (clear_empty) {
+                    std::cout << "\nScanning device memory to identify unused slots to free...\n";
+                    std::vector<uint8_t> slots_to_erase;
+                    for (uint8_t i = 0; i < 200; ++i) {
+                        if (!is_pkg_active[i]) {
+                            auto h = device.get_sample_header(i);
+                            if (!h.is_empty()) {
+                                slots_to_erase.push_back(i);
+                            }
+                        }
+                    }
+
+                    if (!slots_to_erase.empty()) {
+                        std::cout << "Freeing memory: erasing " << slots_to_erase.size() << " old occupied slots...\n";
+                        for (size_t idx = 0; idx < slots_to_erase.size(); ++idx) {
+                            uint8_t slot = slots_to_erase[idx];
+                            std::cout << "\r  Erasing old slot " << static_cast<int>(slot)
+                                      << " (" << (idx + 1) << "/" << slots_to_erase.size() << ")..." << std::flush;
+                            device.delete_sample(slot);
+                        }
+                        std::cout << "\r  Memory freed: erased " << slots_to_erase.size() << " old slots successfully.          \n";
+                    }
+                }
+
+                std::cout << "\n[1/2] Uploading " << active_slots.size() << " active samples to device...\n";
+                for (size_t idx = 0; idx < active_slots.size(); ++idx) {
+                    uint8_t slot = active_slots[idx];
+                    const auto& s = pkg.samples[slot];
+                    std::cout << "\r  [" << (idx + 1) << "/" << active_slots.size() << "] Slot "
+                              << static_cast<int>(slot) << ": \"" << s.header.name << "\" ("
+                              << s.header.length << " samples)..." << std::flush;
+                    device.send_sample(s.header, *s.data);
+                }
+                std::cout << "\r  Finished uploading all " << active_slots.size() << " samples.               \n";
+            }
+
+            // Upload Patterns
+            if (!samples_only) {
+                int total_pats = static_cast<int>(pkg.programs.size());
+                std::cout << "\n[2/2] Uploading " << total_pats << " sequencer patterns to device...\n";
+                for (size_t i = 0; i < pkg.programs.size(); ++i) {
+                    const auto& pat = pkg.programs[i].pattern;
+                    std::cout << "\r  [" << (i + 1) << "/" << total_pats << "] Pattern "
+                              << static_cast<int>(i + 1) << " (slot " << static_cast<int>(pat.pattern_no)
+                              << "): \"" << pat.name << "\"..." << std::flush;
+                    device.send_pattern(pat);
+                }
+                std::cout << "\r  Finished uploading all " << total_pats << " patterns.                      \n";
+            }
+
+            std::cout << "\nSuccess! Package restored to Volca Sample 2.\n";
         }
         else {
             std::cerr << "Unknown command: " << cmd << "\n";

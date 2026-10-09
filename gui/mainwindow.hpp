@@ -76,8 +76,14 @@ private slots:
     void onChopClicked();
     void onDownloadClicked();
     void onDeleteClicked();
-    void onExportAllClicked();
     void onDownloadPackageClicked();
+    void onUploadPackageClicked();
+
+    // Pattern operations
+    void onTabChanged(int index);
+    void onRefreshPatternsClicked();
+    void onRenamePatternClicked();
+    void onPatternDoubleClicked(int row, int col);
 
     // Playback
     void onPlayClicked();
@@ -93,6 +99,9 @@ private slots:
     void onWorkerSpaceUpdated(double occupied, int used_sectors, int all_sectors);
     void onWorkerSlotLoaded(int slot, const volsa2::SampleHeader& header);
     void onWorkerAllSlotsLoaded(const std::vector<volsa2::SampleHeader>& headers);
+    void onWorkerPatternLoaded(int slot, const volsa2::PatternData& pattern);
+    void onWorkerAllPatternsLoaded(const std::vector<volsa2::PatternData>& patterns);
+    void onWorkerPatternUploaded(int slot, const QString& name);
     void onWorkerProgress(int current, int total, const QString& statusText);
     void onWorkerSampleDataReady(int slot, const std::vector<int16_t>& samples);
     void onWorkerSampleUploaded(int slot, const QString& name);
@@ -104,7 +113,10 @@ private:
     void setupUi();
     void setupWorker();
     void updateTableItem(int slot, const volsa2::SampleHeader& header);
+    void updatePatternTableItem(int slot, const volsa2::PatternData& pattern);
     int selectedSlot() const;
+    std::vector<int> selectedSlots() const;
+    int selectedPattern() const;
 
     // UI components
     QLabel* led_indicator_{nullptr};         ///< Circular LED indicator (green=connected, gray=disconnected).
@@ -114,20 +126,36 @@ private:
     QProgressBar* space_bar_{nullptr};       ///< Memory sector occupancy gauge.
     QProgressBar* operation_progress_{nullptr};///< Ongoing transfer progress bar.
 
+    // Tab widget
+    QTabWidget* main_tabs_{nullptr};         ///< Tab widget for Samples and Patterns views.
+
+    // Samples tab
     QLineEdit* search_edit_{nullptr};        ///< Live slot/name filter edit box.
     QCheckBox* hide_empty_check_{nullptr};   ///< Toggle to filter out empty slots.
-
+    QPushButton* btn_upload_{nullptr};       ///< Upload sample button.
+    QPushButton* btn_chop_{nullptr};         ///< Chop/slice sample button.
+    QPushButton* btn_download_{nullptr};     ///< Download sample(s) button (dynamic label for multiple selection).
+    QPushButton* btn_delete_{nullptr};       ///< Erase slot(s) button (dynamic label for multiple selection).
+    QPushButton* btn_download_pkg_{nullptr}; ///< Download package button.
+    QPushButton* btn_upload_pkg_{nullptr};   ///< Upload package button.
     QTableWidget* table_{nullptr};           ///< Table displaying slots 0 through 199.
 
-    // Bottom preview panel
+    // Bottom preview panel (Samples tab)
     WaveformWidget* waveform_widget_{nullptr};///< Interactive audio waveform viewer.
     QLabel* sample_detail_label_{nullptr};   ///< Selected sample metadata readout.
     QPushButton* btn_play_{nullptr};         ///< Audition playback start button.
     QPushButton* btn_stop_{nullptr};         ///< Audition playback stop button.
     QSlider* volume_slider_{nullptr};        ///< Audition output volume slider.
 
+    // Patterns tab
+    QTableWidget* pattern_table_{nullptr};    ///< Table displaying on-board patterns 1 through 16.
+    QPushButton* btn_refresh_patterns_{nullptr};///< Button to refresh all patterns from device.
+    QPushButton* btn_rename_pattern_{nullptr};///< Button to rename the selected pattern.
+
     // State & Cache
     std::vector<volsa2::SampleHeader> slots_; ///< Cached copy of all 200 slot headers.
+    std::vector<volsa2::PatternData> patterns_;///< Cached copy of all 16 on-board patterns.
+    bool patterns_loaded_{false};             ///< Flag indicating if patterns have been fetched from device.
     std::vector<int16_t> current_samples_;   ///< Downloaded PCM samples for active preview.
     std::unordered_map<int, std::vector<int16_t>> sample_cache_; ///< Memory cache for downloaded audio data.
     int active_preview_slot_{-1};            ///< Slot index currently displayed in the waveform viewer.

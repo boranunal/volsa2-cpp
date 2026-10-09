@@ -24,8 +24,8 @@ SampleChopperDialog::SampleChopperDialog(const std::vector<volsa2::SampleHeader>
       original_name_(sample_name),
       source_slot_(source_slot) {
     setWindowTitle(QString("Sample Chopper & Beat Slicer — \"%1\"").arg(sample_name));
-    setMinimumWidth(820);
-    setMinimumHeight(640);
+    setMinimumWidth(860);
+    setMinimumHeight(680);
 
     auto* main_layout = new QVBoxLayout(this);
     main_layout->setSpacing(10);
@@ -113,17 +113,63 @@ SampleChopperDialog::SampleChopperDialog(const std::vector<volsa2::SampleHeader>
     connect(btn_auto_trim_, &QPushButton::clicked, this, &SampleChopperDialog::onAutoTrimSilence);
     crop_layout->addWidget(btn_auto_trim_, 4, 0, 1, 2);
 
-    if (source_slot >= 0) {
-        auto* btn_crop_in_place = new QPushButton("Save Slice to Slot");
-        btn_crop_in_place->setToolTip("Overwrite device source slot with only this selected slice.");
-        btn_crop_in_place->setStyleSheet("font-weight: bold; color: #ffbb44;");
-        connect(btn_crop_in_place, &QPushButton::clicked, this, &SampleChopperDialog::onCropInPlace);
-        crop_layout->addWidget(btn_crop_in_place, 5, 0, 1, 2);
-    }
-
     slice_config_layout->addWidget(crop_box);
+
+    // Save Selected Slice to Custom Slot
+    auto* save_slice_box = new QGroupBox("Save Selected Slice to Custom Slot");
+    auto* save_layout = new QGridLayout(save_slice_box);
+
+    save_layout->addWidget(new QLabel("Target Slot:"), 0, 0);
+    auto* slot_picker_layout = new QHBoxLayout();
+    target_slot_spin_ = new QSpinBox();
+    target_slot_spin_->setRange(0, 199);
+    int first_empty = findNextEmptySlot(0);
+    target_slot_spin_->setValue(first_empty >= 0 ? first_empty : (source_slot >= 0 ? source_slot : 0));
+    connect(target_slot_spin_, QOverload<int>::of(&QSpinBox::valueChanged), this, &SampleChopperDialog::onTargetSlotChanged);
+    slot_picker_layout->addWidget(target_slot_spin_);
+
+    if (source_slot >= 0) {
+        auto* btn_use_source = new QPushButton(QString("Use Source (%1)").arg(source_slot));
+        btn_use_source->setToolTip(QString("Set destination slot to original source slot %1 (will overwrite original!)").arg(source_slot));
+        btn_use_source->setStyleSheet("font-size: 10px; padding: 2px 6px;");
+        connect(btn_use_source, &QPushButton::clicked, this, [this]() {
+            target_slot_spin_->setValue(source_slot_);
+        });
+        slot_picker_layout->addWidget(btn_use_source);
+    }
+    save_layout->addLayout(slot_picker_layout, 0, 1);
+
+    target_slot_status_label_ = new QLabel();
+    target_slot_status_label_->setStyleSheet("font-size: 11px; font-weight: bold;");
+    save_layout->addWidget(target_slot_status_label_, 1, 1);
+
+    save_layout->addWidget(new QLabel("Slice Name:"), 2, 0);
+    slice_name_edit_ = new QLineEdit();
+    slice_name_edit_->setMaxLength(24);
+    slice_name_edit_->setText(QString("%1_s1").arg(sample_name.left(18)));
+    save_layout->addWidget(slice_name_edit_, 2, 1);
+
+    auto* save_btn_layout = new QHBoxLayout();
+    btn_save_slice_ = new QPushButton("Save Slice to Slot");
+    btn_save_slice_->setStyleSheet("background-color: #00b4d8; color: #ffffff; font-weight: bold; padding: 5px 10px;");
+    btn_save_slice_->setToolTip("Uploads the selected slice to the specified target slot (leaves dialog open to save more slices).");
+    connect(btn_save_slice_, &QPushButton::clicked, this, [this]() { onSaveSelectedSlice(false); });
+    save_btn_layout->addWidget(btn_save_slice_);
+
+    btn_save_and_close_ = new QPushButton("Save & Close");
+    btn_save_and_close_->setToolTip("Uploads this slice to target slot and closes chopper.");
+    connect(btn_save_and_close_, &QPushButton::clicked, this, [this]() { onSaveSelectedSlice(true); });
+    save_btn_layout->addWidget(btn_save_and_close_);
+    save_layout->addLayout(save_btn_layout, 3, 0, 1, 2);
+
+    save_feedback_label_ = new QLabel();
+    save_feedback_label_->setStyleSheet("color: #00e5b0; font-size: 11px;");
+    save_layout->addWidget(save_feedback_label_, 4, 0, 1, 2);
+
+    slice_config_layout->addWidget(save_slice_box);
     slice_config_layout->addStretch();
     middle_box->addWidget(slice_config_box, 1);
+    updateTargetSlotStatus();
 
     // Right group: Slice Items list
     auto* slice_list_box = new QGroupBox("Detected Slices (Click to Audition)");
@@ -155,15 +201,7 @@ SampleChopperDialog::SampleChopperDialog(const std::vector<volsa2::SampleHeader>
     start_export_slot_spin_ = new QSpinBox();
     start_export_slot_spin_->setRange(0, 199);
 
-    // Find first empty slot for starting export
-    int first_empty = 0;
-    for (size_t i = 0; i < current_slots_.size(); ++i) {
-        if (current_slots_[i].is_empty()) {
-            first_empty = static_cast<int>(i);
-            break;
-        }
-    }
-    start_export_slot_spin_->setValue(first_empty);
+    start_export_slot_spin_->setValue(first_empty >= 0 ? first_empty : 0);
     export_layout->addWidget(start_export_slot_spin_);
 
     auto* btn_export = new QPushButton("Export All Slices to Consecutive Slots");
@@ -315,6 +353,13 @@ void SampleChopperDialog::selectSlice(int row) {
                                        .arg(row + 1)
                                        .arg(QString::number(dur, 'f', 3))
                                        .arg(len));
+    }
+
+    if (slice_name_edit_) {
+        slice_name_edit_->setText(QString("%1_s%2").arg(original_name_.left(18)).arg(row + 1));
+    }
+    if (save_feedback_label_) {
+        save_feedback_label_->setText("");
     }
 
     btn_play_slice_->setEnabled(true);
@@ -489,24 +534,121 @@ void SampleChopperDialog::onSliceDividerMoved(int divider_idx, size_t new_sample
     syncSliceSpansToWaveform();
 }
 
-void SampleChopperDialog::onCropInPlace() {
-    if (source_slot_ < 0) {
-        QMessageBox::warning(this, "Save Slice to Slot", "This sample did not originate from a device slot.");
+void SampleChopperDialog::onSaveSelectedSlice(bool close_after) {
+    int row = slice_list_->currentRow();
+    if (row < 0 || static_cast<size_t>(row) >= current_slice_points_.size()) {
+        QMessageBox::warning(this, "Save Slice", "Please select a slice from the list or waveform first.");
         return;
     }
 
-    int row = slice_list_->currentRow();
-    if (row < 0 || static_cast<size_t>(row) >= current_slice_points_.size()) {
-        QMessageBox::warning(this, "Save Slice to Slot", "Please select a slice to save.");
+    int target_slot = target_slot_spin_->value();
+    if (target_slot < 0 || target_slot > 199) {
+        QMessageBox::warning(this, "Save Slice", "Target slot must be between 0 and 199.");
         return;
     }
 
     const auto& sp = current_slice_points_[row];
-    auto cropped = volsa2::crop_audio(original_samples_, sp.start_sample, sp.end_sample, true);
+    if (sp.length() == 0) {
+        QMessageBox::warning(this, "Save Slice", "Selected slice has 0 length.");
+        return;
+    }
 
-    QString name = QString("%1_s%2").arg(original_name_).arg(row + 1);
-    emit cropAndSaveRequested(source_slot_, name, cropped);
-    accept();
+    auto cropped = volsa2::crop_audio(original_samples_, sp.start_sample, sp.end_sample, true);
+    if (cropped.empty()) {
+        QMessageBox::warning(this, "Save Slice", "Failed to extract audio for selected slice.");
+        return;
+    }
+
+    QString name = slice_name_edit_->text().trimmed();
+    if (name.isEmpty()) {
+        name = QString("%1_s%2").arg(original_name_.left(18)).arg(row + 1);
+    }
+    if (name.size() > 24) {
+        name = name.left(24);
+    }
+
+    // Check if target slot is occupied
+    if (target_slot < static_cast<int>(current_slots_.size()) && !current_slots_[target_slot].is_empty()) {
+        QString occupied_name = QString::fromStdString(current_slots_[target_slot].name);
+        QString warn_msg;
+        if (target_slot == source_slot_) {
+            warn_msg = QString("Target slot %1 contains the ORIGINAL source sample (\"%2\").\n\nAre you sure you want to overwrite it with this individual slice?")
+                           .arg(target_slot).arg(occupied_name);
+        } else {
+            warn_msg = QString("Target slot %1 is already occupied by \"%2\".\n\nAre you sure you want to overwrite it with this slice?")
+                           .arg(target_slot).arg(occupied_name);
+        }
+        auto res = QMessageBox::question(this, "Confirm Overwrite", warn_msg, QMessageBox::Yes | QMessageBox::No);
+        if (res != QMessageBox::Yes) {
+            return;
+        }
+    }
+
+    // Emit signal to upload slice
+    emit cropAndSaveRequested(target_slot, name, cropped);
+
+    // Update local cache of slots so UI status reflects the newly saved slice
+    if (target_slot < static_cast<int>(current_slots_.size())) {
+        current_slots_[target_slot].name = name.toStdString();
+        current_slots_[target_slot].length = static_cast<uint32_t>(cropped.size());
+        current_slots_[target_slot].level = volsa2::SampleHeader::DEFAULT_LEVEL;
+        current_slots_[target_slot].speed = volsa2::SampleHeader::DEFAULT_SPEED;
+    }
+
+    save_feedback_label_->setText(QString("✓ Saved Slice %1 to Slot %2 (\"%3\")").arg(row + 1).arg(target_slot).arg(name));
+    save_feedback_label_->setStyleSheet("color: #00e5b0; font-weight: bold; font-size: 11px;");
+
+    if (close_after) {
+        accept();
+        return;
+    }
+
+    // Automatically advance target slot to the next empty slot for subsequent slices!
+    int next_empty = findNextEmptySlot(target_slot + 1);
+    if (next_empty >= 0) {
+        target_slot_spin_->setValue(next_empty);
+    } else {
+        updateTargetSlotStatus();
+    }
+}
+
+void SampleChopperDialog::onTargetSlotChanged(int slot) {
+    (void)slot;
+    updateTargetSlotStatus();
+}
+
+void SampleChopperDialog::updateTargetSlotStatus() {
+    if (!target_slot_status_label_ || !target_slot_spin_) return;
+    int slot = target_slot_spin_->value();
+    if (slot < 0 || slot >= static_cast<int>(current_slots_.size())) {
+        target_slot_status_label_->setText("");
+        return;
+    }
+
+    const auto& h = current_slots_[slot];
+    if (h.is_empty()) {
+        target_slot_status_label_->setText("<span style='color: #00e5b0;'>[🟢 Empty Slot]</span>");
+    } else if (slot == source_slot_) {
+        target_slot_status_label_->setText(QString("<span style='color: #ff6666;'>[⚠️ Source Sample: \"%1\"]</span>")
+                                               .arg(QString::fromStdString(h.name)));
+    } else {
+        target_slot_status_label_->setText(QString("<span style='color: #f07828;'>[Occupied: \"%1\"]</span>")
+                                               .arg(QString::fromStdString(h.name)));
+    }
+}
+
+int SampleChopperDialog::findNextEmptySlot(int start_from) const {
+    for (int i = start_from; i < 200; ++i) {
+        if (i < static_cast<int>(current_slots_.size()) && current_slots_[i].is_empty()) {
+            return i;
+        }
+    }
+    for (int i = 0; i < start_from; ++i) {
+        if (i < static_cast<int>(current_slots_.size()) && current_slots_[i].is_empty()) {
+            return i;
+        }
+    }
+    return -1;
 }
 
 void SampleChopperDialog::onExportSlices() {

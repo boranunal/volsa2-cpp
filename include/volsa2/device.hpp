@@ -169,6 +169,24 @@ public:
     void send_sample(const SampleHeader& header, const SampleData& data,
                      std::function<void(size_t sent, size_t total)> progress_cb = nullptr);
 
+    /**
+     * @brief Uploads a sequencer pattern to the device.
+     * @details Sends PatternData SysEx (function 0x4D), waits for device ACK.
+     * @param pattern PatternData containing pattern slot (0-15) and 7,936 bytes of raw sequence payload.
+     * @param progress_cb Optional callback invoked during pattern chunk transmission (sent_bytes, total_bytes).
+     * @throws std::runtime_error if pattern slot is invalid or if the device returns a NAK status code.
+     */
+    void send_pattern(const PatternData& pattern,
+                      std::function<void(size_t sent, size_t total)> progress_cb = nullptr);
+
+    /**
+     * @brief Uploads a collection of sequencer patterns to the device sequentially.
+     * @param patterns Collection of PatternData objects to transmit.
+     * @param on_pattern_write Optional callback invoked during pattern transmission.
+     */
+    void send_all_patterns(const std::vector<PatternData>& patterns,
+                           std::function<void(uint8_t slot, size_t sent, size_t total)> on_pattern_write = nullptr);
+
 private:
     snd_seq_t* seq_{nullptr};             ///< ALSA sequencer handle.
     int my_client_{-1};                    ///< Local ALSA client ID.

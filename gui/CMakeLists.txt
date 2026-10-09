@@ -28,5 +28,6 @@ target_link_libraries(volsa2-gui PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
-    Qt6::Multimedia
 )
+
+install(TARGETS volsa2-gui RUNTIME DESTINATION bin)

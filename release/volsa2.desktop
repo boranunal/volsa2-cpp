@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=VolSa 2
+GenericName=Sample Librarian & Sequencer Manager
+Comment=Digital sample librarian for KORG Volca Sample 2
+Exec=volsa2-gui %F
+Icon=volsa2
+Categories=AudioVideo;Audio;Sequencer;
+Terminal=false

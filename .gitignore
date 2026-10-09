@@ -6,3 +6,12 @@ cmake-build-*/
 *.swp
 *~
 run-gui.sh
+_CPack_Packages/
+*.AppImage
+*.tar.gz
+volsa2-*.sh
+release/bin/
+release/*.AppImage
+release/*.tar.gz
+release/volsa2-*.sh
+

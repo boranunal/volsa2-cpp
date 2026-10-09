@@ -1,98 +1,269 @@
-# VolSa 2 (C++ & Qt 6 Edition)
+# VolSa 2 (C++20 & Qt 6 Edition)
 
-A high-performance C++20 translation and Qt 6 GUI sample manager for the **KORG Volca Sample 2** over ALSA MIDI Sequencer.
+VolSa 2 is a high-performance Linux sample librarian, audio processing workstation, and sequencer pattern manager for the **KORG Volca Sample 2** communicating directly over the Linux kernel ALSA MIDI Sequencer and ALSA PCM audio subsystems.
+
+The official KORG Sound Librarian does not support Linux, and existing open-source alternatives lacked complete hardware protocol implementations. VolSa 2 bridges this gap with deterministic System Exclusive communication, 7-bit packing math, high-fidelity polyphase sinc resampling, transient-based sample chopping, on-board sequencer pattern renaming, and official `.ivlcsplpreset` package archival.
 
 ---
 
 ## Features
 
-- **Accurate Protocol Implementation**:
-  - Full SysEx encoding/decoding matching KORG's specification.
-  - Bit-for-bit validated against actual hardware dump captures (`test_proto` validates against all 14 sample dumps).
-  - 7-bit / 8-bit bidirectional packing and unpacking algorithm (`seven_bit.hpp`).
-- **ALSA MIDI Sequencer Communication**:
-  - Auto-discovery of `"volca sample"` device on Linux ALSA Sequencer.
-  - Chunked transmission with configurable cooldown (default 10ms) to prevent device buffer overflows.
-  - Handshake discovery (device echo, global channel, firmware version).
-  - Space query (used/total sector capacity).
-  - Slot querying (slots 0..199).
-  - Upload, download, and deletion of samples.
-- **Audio Processing**:
-  - Sample conversion to 31.25 kHz mono PCM (Volca Sample 2 native format).
-  - High-quality sinc resampling via `libsamplerate`.
-  - Flexible mono downmixing modes:
-    - **Mid**: `(Left + Right) / 2.0` (mono mix)
-    - **Left**: Left channel only
-    - **Right**: Right channel only
-    - **Side**: `(Left - Right) / 2.0` (stereo difference)
-  - Reads WAV, AIFF, FLAC, OGG, and other audio formats via `libsndfile`.
-  - Exports standard 16-bit RIFF WAV files.
-- **Qt 6 Desktop Application (`volsa2-gui`)**:
-  - Modern, hardware-inspired dark theme UI.
-  - Multi-threaded architecture (`DeviceWorker` on background `QThread`) ensuring a smooth, non-blocking UI during transfers.
-  - Real-time device connection status and memory occupation bar.
-  - Interactive table of all 200 sample slots with instant search & "Hide Empty" filters.
-  - Custom interactive waveform visualizer (`WaveformWidget`) with real-time playback and seekbar.
-  - Built-in audio audition player using Qt 6 Multimedia.
-  - Drag-and-drop audio files directly onto sample slots.
-  - Comprehensive Upload Dialog with mono mode selection, converted waveform auditioning, slot overwrite protection, and optional automatic backup.
-  - Batch export ("Export All Occupied Samples...").
-- **CLI Utility (`volsa2-cli`)**:
-  - Command-line tool compatible with the original `volsa2` Rust CLI.
+- **Auto Device Discovery & Hotplugging:** Continuously discovers and connects to the Volca Sample 2 upon launch or hotplug over ALSA Sequencer (`snd_seq_*`), eliminating the need to have hardware powered on beforehand.
+- **Two-Tab Graphical Workstation:**
+  - **Samples Tab (200 Slots):** Table view with metadata inspection, multi-sample selection, dynamic batch operations, and audio waveform visualizer.
+  - **Patterns Tab (16 Slots):** Sequencer pattern manager displaying step sequences and supporting in-place pattern renaming on device flash.
+- **Multi-Sample Extended Selection & Batch Operations:**
+  - Standard desktop multi-selection (Ctrl+Click, Shift+Click, rubber-band selection).
+  - Batch download selected samples to a destination directory as 16-bit 31.25 kHz RIFF WAV files.
+  - Batch erase selected slots with safety confirmation dialogs.
+  - Context menu selection helpers ("Select All Occupied", "Invert Selection", "Clear Selection").
+  - Multi-file drag-and-drop ingestion onto the sample table.
+- **Interactive Transient Chopper & Audio Slicing (`SampleChopperDialog`):**
+  - Slice modes: Equal Grid (2, 4, 8, 16, 32 slices) and Transient Onset Detection (short-time energy flux with sensitivity tuning).
+  - Auto-trim silence thresholding (-60 dB to -12 dB) to strip pre-attack latency and dead air.
+  - Anti-click boundary micro-fades (32-sample half-cosine window).
+  - Custom target slot mapping with live hardware occupancy badges (`[Empty]` vs `[Occupied]`) and auto-advancing pointer.
+  - Direct audition playback and export to hardware slots.
+- **Complete KORG Preset Package Archival (`.ivlcsplpreset`):**
+  - Full backup and restore of all 16 sequencer patterns and 200 samples in the official KORG Sound Librarian ZIP container.
+  - **Pre-Clean Sector Reclaim Engine:** Phase 1 deallocation wipes obsolete hardware slots before streaming new audio binaries, completely preventing `SampleFull` (NAK `0x25`) flash memory exhaustion.
+- **Zero-Dependency Native Audio Engine:**
+  - Integrated `AlsaAudioPlayer` streams audio directly to the ALSA PCM subsystem (`snd_pcm_*`) with automatic mono-to-stereo replication fallback, bypassing flaky desktop multimedia daemons and GStreamer wrappers.
+- **Audiophile DSP Resampling Pipeline:**
+  - 64-bit double-precision audio ingestion via `libsndfile` (WAV, AIFF, FLAC, OGG, MP3).
+  - Band-limited sinc polyphase interpolation (`libsamplerate`, `SRC_SINC_BEST_QUALITY`, >97 dB SNR) downsampling to the Volca's native 31,250 Hz mono linear PCM format.
+  - Mid, Left, Right, and Side downmixing modes.
 
 ---
 
-## Building
+## Linux Executable Release Files & Pre-Built Packages
 
-### Requirements
-- C++20 compiler (`g++` >= 11 or `clang++` >= 13)
-- CMake >= 3.20
-- `alsa-lib` (`pkg-config alsa`)
-- `libsamplerate` (`pkg-config samplerate`)
-- `libsndfile` (`pkg-config sndfile`)
-- Qt 6 (`Core`, `Gui`, `Widgets`, `Multimedia`)
+Pre-compiled, standalone release binaries are provided in the [`release/`](release/) directory:
 
-### Build Commands
+| Release Artifact | File Size | Description |
+|---|---|---|
+| **[`VolSa2-2.0.0-x86_64.AppImage`](release/VolSa2-2.0.0-x86_64.AppImage)** | **11.5 MB** | **Standalone Linux Executable.** Bundles the Qt runtime, platform plugins (X11 & Wayland), and dependencies. Runs out of the box on any modern Linux distribution. |
+| **[`volsa2-2.0.0-linux-x86_64.sh`](release/volsa2-2.0.0-linux-x86_64.sh)** | **349 KB** | Self-extracting shell installer executable generated by CPack (STGZ). |
+| **[`volsa2-2.0.0-linux-x86_64.tar.gz`](release/volsa2-2.0.0-linux-x86_64.tar.gz)** | **345 KB** | Standard release tarball with binaries, desktop entry, icon, and udev rule. |
+| **[`release/bin/volsa2-gui`](release/bin/volsa2-gui)** | **540 KB** | Stripped, optimized Release GUI executable. |
+| **[`release/bin/volsa2-cli`](release/bin/volsa2-cli)** | **184 KB** | Stripped, optimized Release CLI executable. |
+
+### Running the AppImage
+Make the AppImage executable and launch:
+```sh
+chmod +x release/VolSa2-2.0.0-x86_64.AppImage
+
+# Launch the Graphical Interface:
+./release/VolSa2-2.0.0-x86_64.AppImage
+
+# Or use CLI commands directly via the same AppImage:
+./release/VolSa2-2.0.0-x86_64.AppImage cli list
+./release/VolSa2-2.0.0-x86_64.AppImage cli download-package backup.ivlcsplpreset
+```
+
+---
+
+## Universal Linux Installer (`install.sh`)
+
+A cross-distribution installation script ([`install.sh`](install.sh)) is included to automate installing binaries, creating application menu entries, setting up desktop shortcuts, and managing custom icons:
+
+```sh
+# Standard user-level install (~/.local/bin, ~/Desktop, no root required)
+./install.sh
+
+# System-wide installation (installs to /usr/local/bin and configures udev rules)
+sudo ./install.sh --system
+
+# Install with or update to a custom icon:
+./install.sh --icon /path/to/my_custom_icon.png
+
+# Only update desktop launcher and icon:
+./install.sh --desktop-only --icon /path/to/my_custom_icon.png
+
+# Clean uninstallation:
+./install.sh --uninstall
+```
+
+### Desktop Executable & Custom Icon Support
+The installer automatically creates:
+- **Desktop Shortcut:** Placed directly on `~/Desktop/VolSa2.desktop` and marked executable (`chmod +x` and trusted for launching in GNOME/KDE).
+- **Application Menu Launcher:** Installed to `~/.local/share/applications/volsa2.desktop`.
+- **Custom Icon:** When you have your custom icon ready, simply run:
+  ```sh
+  ./install.sh --icon /path/to/your_icon.png
+  ```
+  The script automatically deploys the image to the standard FreeDesktop icon hierarchy (`~/.local/share/icons/hicolor/256x256/apps/volsa2.png`) and refreshes desktop icon caches.
+
+---
+
+## Building from Source
+
+### 1. System Requirements & Dependencies
+
+To compile VolSa 2 from source, ensure your system has a C++20 compiler, CMake, and the required development libraries installed:
+
+- **Compiler:** Modern C++20 compiler (`g++` >= 11 or `clang++` >= 13)
+- **Build System:** CMake >= 3.20 and `pkg-config`
+- **ALSA Library:** `libasound2-dev` (ALSA Sequencer & PCM audio)
+- **Audio Resampler:** `libsamplerate0-dev` (Secret Rabbit Code polyphase sinc resampler)
+- **Audio Codec Library:** `libsndfile1-dev` (Multi-format audio decoding and WAV I/O)
+- **ZIP Compression Library:** `libzip-dev` (KORG `.ivlcsplpreset` PKZIP archive support)
+- **Cryptographic Library:** `libssl-dev` (OpenSSL EVP MD5 checksum verification)
+- **GUI Framework:** Qt 6 (`qt6-base-dev`, Core, Gui, Widgets)
+
+#### One-Line Dependency Installation:
+
+**Debian / Ubuntu / Linux Mint:**
+```sh
+sudo apt update
+sudo apt install build-essential cmake pkg-config \
+    libasound2-dev libsamplerate0-dev libsndfile1-dev \
+    libzip-dev libssl-dev qt6-base-dev
+```
+
+**Fedora / RHEL:**
+```sh
+sudo dnf install gcc-c++ cmake pkgconf \
+    alsa-lib-devel libsamplerate-devel libsndfile-devel \
+    libzip-devel openssl-devel qt6-qtbase-devel
+```
+
+**Arch Linux / Manjaro:**
+```sh
+sudo pacman -S gcc cmake pkgconf \
+    alsa-lib libsamplerate libsndfile libzip openssl qt6-base
+```
+
+---
+
+### 2. Build Commands
+
+#### Full Release Build (GUI, CLI, and Test Suites)
 ```sh
 cd volsa2-cpp
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
+```
+
+If using a custom Qt 6 installation (such as `/usr/local/Qt-6.9.1`):
+```sh
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/usr/local/Qt-6.9.1
 cmake --build build -j$(nproc)
 ```
 
-Run unit tests:
+#### Headless / Embedded Build (CLI Only, No Qt Required)
+```sh
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_GUI=OFF
+cmake --build build -j$(nproc)
+```
+
+#### Running the Test Suite
+VolSa 2 includes 7 test suites validating 7-bit packing math, golden hardware SysEx captures, sinc resampling, pattern protocols, package archives, and sample chopping:
 ```sh
 ctest --test-dir build --output-on-failure
 ```
 
+#### Building Release Packages & AppImage
+To rebuild the entire release suite (AppImage, CPack archives, stripped binaries, and checksums) with a single command:
+```sh
+./scripts/build_release.sh
+```
+
 ---
 
-## Usage
+### 3. Linux Hardware Permissions (udev Rules)
 
-### 1. Qt GUI Application
+To communicate with the Volca Sample 2 over USB MIDI without requiring `root` or `sudo` privileges:
+
+1. Add your user account to the `audio` group:
+   ```sh
+   sudo usermod -aG audio $USER
+   ```
+2. Install the udev rule to `/etc/udev/rules.d/99-korg-volca.rules`:
+   ```udev
+   # KORG Volca Sample 2 USB MIDI Interface
+   SUBSYSTEM=="sound", ATTRS{idVendor}=="0944", MODE="0666", GROUP="audio"
+   SUBSYSTEM=="usb", ATTRS{idVendor}=="0944", MODE="0666", GROUP="audio"
+   ```
+3. Reload udev rules:
+   ```sh
+   sudo udevadm control --reload-rules && sudo udevadm trigger
+   ```
+4. Log out and log back in for group membership to take effect.
+
+---
+
+## Usage Guide
+
+### 1. Graphical User Interface (`volsa2-gui`)
+
 Launch the GUI:
 ```sh
 ./build/gui/volsa2-gui
+# Or using the release AppImage:
+./release/VolSa2-2.0.0-x86_64.AppImage
 ```
-- Click **Connect** to detect and connect to your Volca Sample 2 over USB/ALSA MIDI.
-- Click **Refresh All Slots** to scan slots 0..199.
-- Click on any slot to load its waveform and play back audio.
-- Drag any audio file onto a slot or click **Upload Sample...**.
-- Right-click any row for contextual options (Play, Upload, Download, Erase).
 
-### 2. Command Line (`volsa2-cli`)
+- **Connecting:** Click **Connect** to query the ALSA sequencer and attach to the Volca Sample 2.
+- **Scanning Memory:** Click **Refresh All Slots** to scan slots 0–199 and update the flash sector meter.
+- **Auditioning:** Click any row to load its waveform into the visualizer; press **Play** (or Spacebar) to audition through ALSA PCM.
+- **Uploading:** Click **Upload Sample...** or drag and drop audio files directly into the table.
+- **Multi-Selection:** Hold `Ctrl` or `Shift` to select multiple sample slots. The action buttons dynamically switch to "Download Selected (N)..." and "Erase Selected (N)...".
+- **Chopping & Slicing:** Click **Chop / Slice...** to launch the interactive sample chopper. Select Equal Grid or Transient Detection, preview slices, configure custom target slots with live vacancy badges, and export directly to hardware.
+- **Sequencer Patterns:** Switch to the **Patterns** tab to view all 16 on-board sequences. Select a pattern and click **Rename Selected Pattern...** to update its title on hardware flash.
+- **Package Backup & Restore:** Click **Download Package...** to back up all patterns and samples to an `.ivlcsplpreset` archive, or **Upload Package...** to restore a kit with automatic Phase 1 flash memory pre-cleaning.
+
+---
+
+### 2. Command Line Interface (`volsa2-cli`)
+
+#### Inspecting Device & Slots
 ```sh
-# List loaded samples
-./build/volsa2-cli list [-a]
+# List all occupied sample slots and flash memory usage
+./build/volsa2-cli list
 
-# Download a sample slot to a WAV file
-./build/volsa2-cli download 0 -o ./my_sample.wav
+# List all 200 slots including empty positions
+./build/volsa2-cli list -a
+```
 
-# Upload an audio file into the first available empty slot
-./build/volsa2-cli upload drum.wav
+#### Uploading & Downloading Individual Samples
+```sh
+# Upload audio file into the first available vacant slot
+./build/volsa2-cli upload kick.wav
 
-# Upload into a specific slot with mono mode
-./build/volsa2-cli upload drum.wav 5 -m mid
+# Upload into specific slot with mid downmixing
+./build/volsa2-cli upload snare.wav 5 -m mid
 
-# Erase a slot
+# Download a sample from slot 0 to a WAV file
+./build/volsa2-cli download 0 -o ./downloaded_kick.wav
+
+# Erase a sample slot
 ./build/volsa2-cli remove 5 -p
 ```
+
+#### Package Archival & Restoration (`.ivlcsplpreset`)
+```sh
+# Back up complete machine state (all 16 patterns and 200 samples)
+./build/volsa2-cli download-package full_backup.ivlcsplpreset
+
+# Restore a preset package with automatic Phase 1 pre-cleaning
+./build/volsa2-cli upload-package techno_kit.ivlcsplpreset --clear-empty -y
+
+# Restore only the 16 sequencer patterns from a package
+./build/volsa2-cli upload-package groove_patterns.ivlcsplpreset --patterns-only -y
+```
+
+---
+
+## Technical Documentation
+
+For an exhaustive systems programming manual detailing ALSA kernel ring buffers, 7-bit MIDI octet packing math, the 9,079-byte pattern SysEx layout, short-time energy transient detection equations, and the Pre-Clean Reclaim algorithm, consult:
+- **[Technical Documentation](technical_documentation.md)** (Architecture & Implementation Reference)
+
+---
+
+## License & Disclaimer
+
+Open-source project built for the Linux music production community. Use at your own risk. KORG and Volca are trademarks of Korg Inc.
+
+

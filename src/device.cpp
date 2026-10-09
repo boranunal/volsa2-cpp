@@ -477,4 +477,34 @@ void Device::send_sample(const SampleHeader& header, const SampleData& data,
     }
 }
 
+void Device::send_pattern(const PatternData& pattern,
+                          std::function<void(size_t sent, size_t total)> progress_cb) {
+    if (pattern.pattern_no > 15) {
+        throw std::runtime_error("pattern_no must be less than 16 (0-15)");
+    }
+    clear_input();
+
+    // Transmit pattern SysEx message (9,079 bytes)
+    send_raw(pattern.encode(channel_.as_u8()), progress_cb);
+
+    // Wait for device ACK
+    auto status_raw = receive_raw(std::chrono::milliseconds(10000));
+    auto status = StatusMessage::parse(status_raw);
+    if (!status.is_ack) {
+        throw std::runtime_error(std::string("Device rejected pattern ") +
+                                 std::to_string(pattern.pattern_no) + ": " + to_string(status.nak));
+    }
+}
+
+void Device::send_all_patterns(const std::vector<PatternData>& patterns,
+                               std::function<void(uint8_t slot, size_t sent, size_t total)> on_pattern_write) {
+    for (const auto& pat : patterns) {
+        send_pattern(pat, [&](size_t sent, size_t total) {
+            if (on_pattern_write) {
+                on_pattern_write(pat.pattern_no, sent, total);
+            }
+        });
+    }
+}
+
 } // namespace volsa2

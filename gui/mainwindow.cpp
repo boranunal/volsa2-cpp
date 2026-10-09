@@ -9,9 +9,12 @@
 #include "upload_dialog.hpp"
 #include "sample_chopper_dialog.hpp"
 #include "volsa2/audio.hpp"
+#include "volsa2/package.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QFormLayout>
+#include <QGroupBox>
 #include <QHeaderView>
 #include <QMessageBox>
 #include <QFileDialog>
@@ -22,17 +25,23 @@
 #include <QStatusBar>
 #include <QFileInfo>
 #include <QDialogButtonBox>
+#include <QTabWidget>
+#include <QInputDialog>
 #include <cmath>
 #include <algorithm>
+#include <unordered_set>
 
 MainWindow::MainWindow(QWidget* parent)
-    : QMainWindow(parent), slots_(200) {
+    : QMainWindow(parent), slots_(200), patterns_(16) {
     setWindowTitle("VolSa 2 - KORG Volca Sample 2 Manager");
     resize(960, 680);
     setAcceptDrops(true);
 
     for (uint8_t i = 0; i < 200; ++i) {
         slots_[i] = volsa2::SampleHeader::empty(i);
+    }
+    for (uint8_t i = 0; i < 16; ++i) {
+        patterns_[i] = volsa2::PatternData::create(i, "Pattern " + std::to_string(i + 1));
     }
 
     setupUi();
@@ -137,6 +146,29 @@ void MainWindow::setupUi() {
             margin: -4px 0;
             border-radius: 7px;
         }
+        QTabWidget::pane {
+            border: 1px solid #383844;
+            background-color: #19191d;
+            border-radius: 4px;
+        }
+        QTabBar::tab {
+            background-color: #2b2b35;
+            color: #a0a0b0;
+            padding: 7px 18px;
+            margin-right: 3px;
+            border-top-left-radius: 4px;
+            border-top-right-radius: 4px;
+            font-weight: bold;
+        }
+        QTabBar::tab:selected {
+            background-color: #353545;
+            color: #ffffff;
+            border-bottom: 2px solid #f07828;
+        }
+        QTabBar::tab:hover:!selected {
+            background-color: #333340;
+            color: #e0e0e0;
+        }
     )");
 
     auto* central = new QWidget(this);
@@ -182,37 +214,50 @@ void MainWindow::setupUi() {
     top_panel->addStretch();
     main_layout->addLayout(top_panel);
 
-    // --- Action Bar: Upload, Download, Erase, Filter ---
+    // --- Main Tabs: Samples (Tab 0) & Patterns (Tab 1) ---
+    main_tabs_ = new QTabWidget(central);
+    connect(main_tabs_, &QTabWidget::currentChanged, this, &MainWindow::onTabChanged);
+
+    // ==========================================
+    // Tab 1: Samples (200 Slots)
+    // ==========================================
+    auto* samples_tab = new QWidget();
+    auto* samples_layout = new QVBoxLayout(samples_tab);
+    samples_layout->setContentsMargins(4, 8, 4, 4);
+    samples_layout->setSpacing(8);
+
+    // Action Bar: Upload, Download, Erase, Filter
     auto* action_bar = new QHBoxLayout();
     action_bar->setSpacing(8);
 
-    auto* btn_upload = new QPushButton("Upload Sample...");
-    btn_upload->setStyleSheet("QPushButton { border-color: #f07828; color: #ff9944; }");
-    connect(btn_upload, &QPushButton::clicked, this, &MainWindow::onUploadClicked);
-    action_bar->addWidget(btn_upload);
+    btn_upload_ = new QPushButton("Upload Sample...");
+    btn_upload_->setStyleSheet("QPushButton { border-color: #f07828; color: #ff9944; }");
+    connect(btn_upload_, &QPushButton::clicked, this, &MainWindow::onUploadClicked);
+    action_bar->addWidget(btn_upload_);
 
-    auto* btn_chop = new QPushButton("Chop / Slice...");
-    btn_chop->setStyleSheet("QPushButton { border-color: #00b4d8; color: #48cae4; }");
-    connect(btn_chop, &QPushButton::clicked, this, &MainWindow::onChopClicked);
-    action_bar->addWidget(btn_chop);
+    btn_chop_ = new QPushButton("Chop / Slice...");
+    btn_chop_->setStyleSheet("QPushButton { border-color: #00b4d8; color: #48cae4; }");
+    connect(btn_chop_, &QPushButton::clicked, this, &MainWindow::onChopClicked);
+    action_bar->addWidget(btn_chop_);
 
-    auto* btn_download = new QPushButton("Download Selected...");
-    connect(btn_download, &QPushButton::clicked, this, &MainWindow::onDownloadClicked);
-    action_bar->addWidget(btn_download);
+    btn_download_ = new QPushButton("Download Selected...");
+    connect(btn_download_, &QPushButton::clicked, this, &MainWindow::onDownloadClicked);
+    action_bar->addWidget(btn_download_);
 
-    auto* btn_delete = new QPushButton("Erase Slot");
-    btn_delete->setStyleSheet("QPushButton:hover { border-color: #ff4444; color: #ff6666; }");
-    connect(btn_delete, &QPushButton::clicked, this, &MainWindow::onDeleteClicked);
-    action_bar->addWidget(btn_delete);
+    btn_delete_ = new QPushButton("Erase Slot");
+    btn_delete_->setStyleSheet("QPushButton:hover { border-color: #ff4444; color: #ff6666; }");
+    connect(btn_delete_, &QPushButton::clicked, this, &MainWindow::onDeleteClicked);
+    action_bar->addWidget(btn_delete_);
 
-    auto* btn_export_all = new QPushButton("Export All Occupied...");
-    connect(btn_export_all, &QPushButton::clicked, this, &MainWindow::onExportAllClicked);
-    action_bar->addWidget(btn_export_all);
+    btn_download_pkg_ = new QPushButton("Download Package (.ivlcsplpreset)...");
+    btn_download_pkg_->setStyleSheet("QPushButton { border-color: #7209b7; color: #c77dff; }");
+    connect(btn_download_pkg_, &QPushButton::clicked, this, &MainWindow::onDownloadPackageClicked);
+    action_bar->addWidget(btn_download_pkg_);
 
-    auto* btn_download_pkg = new QPushButton("Download Package (.ivlcsplpreset)...");
-    btn_download_pkg->setStyleSheet("QPushButton { border-color: #7209b7; color: #c77dff; }");
-    connect(btn_download_pkg, &QPushButton::clicked, this, &MainWindow::onDownloadPackageClicked);
-    action_bar->addWidget(btn_download_pkg);
+    btn_upload_pkg_ = new QPushButton("Upload Package (.ivlcsplpreset)...");
+    btn_upload_pkg_->setStyleSheet("QPushButton { border-color: #06d6a0; color: #70e000; }");
+    connect(btn_upload_pkg_, &QPushButton::clicked, this, &MainWindow::onUploadPackageClicked);
+    action_bar->addWidget(btn_upload_pkg_);
 
     action_bar->addStretch();
 
@@ -227,13 +272,13 @@ void MainWindow::setupUi() {
     connect(hide_empty_check_, &QCheckBox::toggled, this, &MainWindow::onFilterChanged);
     action_bar->addWidget(hide_empty_check_);
 
-    main_layout->addLayout(action_bar);
+    samples_layout->addLayout(action_bar);
 
-    // --- Main Slots Table ---
+    // Main Slots Table
     table_ = new QTableWidget(200, 7, this);
     table_->setHorizontalHeaderLabels({"Slot", "Name", "Length", "Duration", "Speed", "Level", "Status"});
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table_->setSelectionMode(QAbstractItemView::SingleSelection);
+    table_->setSelectionMode(QAbstractItemView::ExtendedSelection);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->setAlternatingRowColors(true);
     table_->verticalHeader()->setVisible(false);
@@ -254,9 +299,9 @@ void MainWindow::setupUi() {
     connect(table_, &QTableWidget::itemSelectionChanged, this, &MainWindow::onTableSelectionChanged);
     connect(table_, &QTableWidget::customContextMenuRequested, this, &MainWindow::onTableCustomContextMenu);
 
-    main_layout->addWidget(table_, 1);
+    samples_layout->addWidget(table_, 1);
 
-    // --- Bottom Panel: Waveform & Playback ---
+    // Bottom Panel: Waveform & Playback
     auto* bottom_panel = new QVBoxLayout();
     bottom_panel->setSpacing(6);
 
@@ -290,7 +335,79 @@ void MainWindow::setupUi() {
     play_bar->addWidget(volume_slider_);
 
     bottom_panel->addLayout(play_bar);
-    main_layout->addLayout(bottom_panel);
+    samples_layout->addLayout(bottom_panel);
+
+    main_tabs_->addTab(samples_tab, "Samples (200)");
+
+    // ==========================================
+    // Tab 2: Patterns (16 On-Board Sequencer Slots)
+    // ==========================================
+    auto* patterns_tab = new QWidget();
+    auto* patterns_layout = new QVBoxLayout(patterns_tab);
+    patterns_layout->setContentsMargins(4, 8, 4, 4);
+    patterns_layout->setSpacing(8);
+
+    auto* pat_action_bar = new QHBoxLayout();
+    pat_action_bar->setSpacing(8);
+
+    btn_refresh_patterns_ = new QPushButton("Refresh Patterns");
+    btn_refresh_patterns_->setEnabled(false);
+    connect(btn_refresh_patterns_, &QPushButton::clicked, this, &MainWindow::onRefreshPatternsClicked);
+    pat_action_bar->addWidget(btn_refresh_patterns_);
+
+    btn_rename_pattern_ = new QPushButton("Rename Pattern...");
+    btn_rename_pattern_->setStyleSheet("QPushButton { border-color: #f07828; color: #ff9944; }");
+    btn_rename_pattern_->setEnabled(false);
+    connect(btn_rename_pattern_, &QPushButton::clicked, this, &MainWindow::onRenamePatternClicked);
+    pat_action_bar->addWidget(btn_rename_pattern_);
+
+    pat_action_bar->addStretch();
+
+    auto* pat_hint = new QLabel("Double-click a pattern or click 'Rename Pattern...' to change its name on hardware.");
+    pat_hint->setStyleSheet("color: #888899; font-style: italic;");
+    pat_action_bar->addWidget(pat_hint);
+
+    patterns_layout->addLayout(pat_action_bar);
+
+    pattern_table_ = new QTableWidget(16, 4, this);
+    pattern_table_->setHorizontalHeaderLabels({"Pattern", "Name", "Payload Size", "Status"});
+    pattern_table_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    pattern_table_->setSelectionMode(QAbstractItemView::SingleSelection);
+    pattern_table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    pattern_table_->setAlternatingRowColors(true);
+    pattern_table_->verticalHeader()->setVisible(false);
+    pattern_table_->setContextMenuPolicy(Qt::CustomContextMenu);
+
+    pattern_table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    pattern_table_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    pattern_table_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    pattern_table_->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+
+    for (int i = 0; i < 16; ++i) {
+        updatePatternTableItem(i, patterns_[static_cast<size_t>(i)]);
+    }
+
+    connect(pattern_table_, &QTableWidget::itemSelectionChanged, this, [this]() {
+        btn_rename_pattern_->setEnabled(btn_connect_->text() != "Connect" && selectedPattern() >= 0);
+    });
+    connect(pattern_table_, &QTableWidget::cellDoubleClicked, this, &MainWindow::onPatternDoubleClicked);
+    connect(pattern_table_, &QTableWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        int row = pattern_table_->rowAt(pos.y());
+        if (row < 0 || static_cast<size_t>(row) >= patterns_.size()) return;
+        pattern_table_->selectRow(row);
+        QMenu menu(this);
+        auto* rename_act = menu.addAction("Rename Pattern...");
+        rename_act->setEnabled(btn_connect_->text() != "Connect");
+        if (menu.exec(pattern_table_->viewport()->mapToGlobal(pos)) == rename_act) {
+            onPatternDoubleClicked(row, 1);
+        }
+    });
+
+    patterns_layout->addWidget(pattern_table_, 1);
+
+    main_tabs_->addTab(patterns_tab, "Patterns (16)");
+
+    main_layout->addWidget(main_tabs_, 1);
 
     // Operation progress bar
     operation_progress_ = new QProgressBar();
@@ -318,6 +435,9 @@ void MainWindow::setupWorker() {
     connect(worker_, &DeviceWorker::spaceUpdated, this, &MainWindow::onWorkerSpaceUpdated);
     connect(worker_, &DeviceWorker::slotLoaded, this, &MainWindow::onWorkerSlotLoaded);
     connect(worker_, &DeviceWorker::allSlotsLoaded, this, &MainWindow::onWorkerAllSlotsLoaded);
+    connect(worker_, &DeviceWorker::patternLoaded, this, &MainWindow::onWorkerPatternLoaded);
+    connect(worker_, &DeviceWorker::allPatternsLoaded, this, &MainWindow::onWorkerAllPatternsLoaded);
+    connect(worker_, &DeviceWorker::patternUploaded, this, &MainWindow::onWorkerPatternUploaded);
     connect(worker_, &DeviceWorker::progress, this, &MainWindow::onWorkerProgress);
     connect(worker_, &DeviceWorker::sampleDataReady, this, &MainWindow::onWorkerSampleDataReady);
     connect(worker_, &DeviceWorker::sampleUploaded, this, &MainWindow::onWorkerSampleUploaded);
@@ -368,10 +488,61 @@ void MainWindow::updateTableItem(int slot, const volsa2::SampleHeader& header) {
     }
 }
 
+std::vector<int> MainWindow::selectedSlots() const {
+    std::vector<int> result;
+    if (!table_ || !table_->selectionModel()) return result;
+    auto indexes = table_->selectionModel()->selectedRows();
+    result.reserve(indexes.size());
+    for (const auto& idx : indexes) {
+        if (!table_->isRowHidden(idx.row())) {
+            result.push_back(idx.row());
+        }
+    }
+    std::sort(result.begin(), result.end());
+    return result;
+}
+
 int MainWindow::selectedSlot() const {
-    auto items = table_->selectedItems();
+    auto sel = selectedSlots();
+    if (sel.empty()) return -1;
+    int current = table_->currentRow();
+    if (std::find(sel.begin(), sel.end(), current) != sel.end()) {
+        return current;
+    }
+    return sel.front();
+}
+
+int MainWindow::selectedPattern() const {
+    if (!pattern_table_) return -1;
+    auto items = pattern_table_->selectedItems();
     if (items.isEmpty()) return -1;
     return items.first()->row();
+}
+
+void MainWindow::updatePatternTableItem(int slot, const volsa2::PatternData& pattern) {
+    if (!pattern_table_ || slot < 0 || slot >= 16) return;
+
+    QString num_str = QString("Pattern %1").arg(slot + 1, 2, 10, QChar('0'));
+    pattern_table_->setItem(slot, 0, new QTableWidgetItem(num_str));
+
+    QString name_str = pattern.name.empty() ? QString("Pattern %1").arg(slot + 1) : QString::fromStdString(pattern.name);
+    auto* name_item = new QTableWidgetItem(name_str);
+    pattern_table_->setItem(slot, 1, name_item);
+
+    QString size_str = QString("%1 B").arg(pattern.raw_data.size());
+    pattern_table_->setItem(slot, 2, new QTableWidgetItem(size_str));
+
+    auto* status_item = new QTableWidgetItem(patterns_loaded_ ? "Synced" : "Default");
+    status_item->setForeground(patterns_loaded_ ? QColor(76, 175, 80) : QColor(110, 110, 130));
+    pattern_table_->setItem(slot, 3, status_item);
+
+    for (int col = 0; col < 4; ++col) {
+        if (auto* it = pattern_table_->item(slot, col)) {
+            if (col != 1) {
+                it->setTextAlignment(Qt::AlignCenter);
+            }
+        }
+    }
 }
 
 void MainWindow::onConnectClicked() {
@@ -396,6 +567,64 @@ void MainWindow::onRefreshClicked() {
 }
 
 void MainWindow::onTableSelectionChanged() {
+    auto sel = selectedSlots();
+    if (sel.empty()) {
+        active_preview_slot_ = -1;
+        slot_selection_debounce_timer_.stop();
+        pending_fetch_slot_ = -1;
+        sample_detail_label_->setText("Select a slot to view and audition sample.");
+        waveform_widget_->clear();
+        current_samples_.clear();
+        btn_play_->setEnabled(false);
+        btn_stop_->setEnabled(false);
+
+        if (btn_download_) {
+            btn_download_->setText("Download Selected...");
+            btn_download_->setEnabled(false);
+        }
+        if (btn_delete_) {
+            btn_delete_->setText("Erase Slot");
+            btn_delete_->setEnabled(false);
+        }
+        if (btn_upload_) btn_upload_->setEnabled(true);
+        if (btn_chop_) btn_chop_->setEnabled(true);
+        return;
+    }
+
+    // Dynamic button text & state based on selection count
+    if (sel.size() > 1) {
+        int occ_count = 0;
+        for (int s : sel) {
+            if (s >= 0 && static_cast<size_t>(s) < slots_.size() && !slots_[s].is_empty()) {
+                occ_count++;
+            }
+        }
+        if (btn_download_) {
+            btn_download_->setText(QString("Download Selected (%1)...").arg(occ_count));
+            btn_download_->setEnabled(occ_count > 0);
+        }
+        if (btn_delete_) {
+            btn_delete_->setText(QString("Erase Selected (%1)...").arg(occ_count));
+            btn_delete_->setEnabled(occ_count > 0);
+        }
+        if (btn_upload_) btn_upload_->setEnabled(false);
+        if (btn_chop_) btn_chop_->setEnabled(false);
+        statusBar()->showMessage(QString("%1 slots selected (%2 occupied).").arg(sel.size()).arg(occ_count));
+    } else {
+        int s = sel.front();
+        bool is_empty = (s >= 0 && static_cast<size_t>(s) < slots_.size()) ? slots_[s].is_empty() : true;
+        if (btn_download_) {
+            btn_download_->setText("Download Selected...");
+            btn_download_->setEnabled(!is_empty);
+        }
+        if (btn_delete_) {
+            btn_delete_->setText("Erase Slot");
+            btn_delete_->setEnabled(!is_empty);
+        }
+        if (btn_upload_) btn_upload_->setEnabled(true);
+        if (btn_chop_) btn_chop_->setEnabled(true);
+    }
+
     int slot = selectedSlot();
     if (slot < 0 || static_cast<size_t>(slot) >= slots_.size()) {
         return;
@@ -407,20 +636,33 @@ void MainWindow::onTableSelectionChanged() {
     if (h.is_empty()) {
         slot_selection_debounce_timer_.stop();
         pending_fetch_slot_ = -1;
-        sample_detail_label_->setText(QString("Slot %1: <EMPTY>").arg(slot));
+        if (sel.size() > 1) {
+            sample_detail_label_->setText(QString("[%1 slots selected] Auditioning Slot %2: <EMPTY>").arg(sel.size()).arg(slot));
+        } else {
+            sample_detail_label_->setText(QString("Slot %1: <EMPTY>").arg(slot));
+        }
         waveform_widget_->clear();
         current_samples_.clear();
         btn_play_->setEnabled(false);
         btn_stop_->setEnabled(false);
     } else {
         double dur = static_cast<double>(h.length) / volsa2::VOLCA_SAMPLERATE;
-        sample_detail_label_->setText(QString("Slot %1: \"%2\" | %3 samples (%4s) | Spd: %5 | Lvl: %6")
-                                          .arg(slot)
-                                          .arg(QString::fromStdString(h.name))
-                                          .arg(h.length)
-                                          .arg(QString::number(dur, 'f', 2))
-                                          .arg(h.speed)
-                                          .arg(h.level));
+        if (sel.size() > 1) {
+            sample_detail_label_->setText(QString("[%1 slots selected] Auditioning Slot %2: \"%3\" | %4 samples (%5s)")
+                                              .arg(sel.size())
+                                              .arg(slot)
+                                              .arg(QString::fromStdString(h.name))
+                                              .arg(h.length)
+                                              .arg(QString::number(dur, 'f', 2)));
+        } else {
+            sample_detail_label_->setText(QString("Slot %1: \"%2\" | %3 samples (%4s) | Spd: %5 | Lvl: %6")
+                                              .arg(slot)
+                                              .arg(QString::fromStdString(h.name))
+                                              .arg(h.length)
+                                              .arg(QString::number(dur, 'f', 2))
+                                              .arg(h.speed)
+                                              .arg(h.level));
+        }
 
         // Use cached samples if already downloaded, otherwise query ALSA with debounce
         auto it = sample_cache_.find(slot);
@@ -430,12 +672,16 @@ void MainWindow::onTableSelectionChanged() {
             current_samples_ = it->second;
             waveform_widget_->setAudioData(current_samples_, volsa2::VOLCA_SAMPLERATE);
             btn_play_->setEnabled(!current_samples_.empty());
-            statusBar()->showMessage(QString("Slot %1 loaded from cache (%2 samples).").arg(slot).arg(current_samples_.size()));
+            if (sel.size() == 1) {
+                statusBar()->showMessage(QString("Slot %1 loaded from cache (%2 samples).").arg(slot).arg(current_samples_.size()));
+            }
         } else {
             current_samples_.clear();
             waveform_widget_->clear();
             btn_play_->setEnabled(false);
-            statusBar()->showMessage(QString("Slot %1 selected. Loading waveform...").arg(slot));
+            if (sel.size() == 1) {
+                statusBar()->showMessage(QString("Slot %1 selected. Loading waveform...").arg(slot));
+            }
             pending_fetch_slot_ = slot;
             slot_selection_debounce_timer_.start();
         }
@@ -444,16 +690,71 @@ void MainWindow::onTableSelectionChanged() {
 
 void MainWindow::onTableCustomContextMenu(const QPoint& pos) {
     int row = table_->rowAt(pos.y());
-    if (row < 0) return;
-    table_->selectRow(row);
+    auto sel = selectedSlots();
+
+    if (row >= 0 && std::find(sel.begin(), sel.end(), row) == sel.end()) {
+        table_->selectRow(row);
+        sel = {row};
+    }
 
     QMenu menu(this);
-    menu.addAction("▶ Play Preview", this, &MainWindow::onPlayClicked);
-    menu.addSeparator();
-    menu.addAction("Upload Sample to Slot...", this, &MainWindow::onUploadClicked);
-    menu.addAction("Chop / Slice Sample...", this, &MainWindow::onChopClicked);
-    menu.addAction("Download to WAV...", this, &MainWindow::onDownloadClicked);
-    menu.addAction("Erase Slot", this, &MainWindow::onDeleteClicked);
+
+    if (sel.size() > 1) {
+        int occ_count = 0;
+        for (int s : sel) {
+            if (s >= 0 && static_cast<size_t>(s) < slots_.size() && !slots_[s].is_empty()) {
+                occ_count++;
+            }
+        }
+        auto* dl_act = menu.addAction(QString("Download Selected (%1 samples)...").arg(occ_count), this, &MainWindow::onDownloadClicked);
+        dl_act->setEnabled(occ_count > 0);
+        auto* del_act = menu.addAction(QString("Erase Selected (%1 slots)...").arg(occ_count), this, &MainWindow::onDeleteClicked);
+        del_act->setEnabled(occ_count > 0);
+        menu.addSeparator();
+    } else if (sel.size() == 1) {
+        int slot = sel.front();
+        bool is_empty = (slot >= 0 && static_cast<size_t>(slot) < slots_.size()) ? slots_[slot].is_empty() : true;
+        auto* play_act = menu.addAction("▶ Play Preview", this, &MainWindow::onPlayClicked);
+        play_act->setEnabled(!is_empty);
+        menu.addSeparator();
+        menu.addAction(QString("Upload Sample to Slot %1...").arg(slot), this, &MainWindow::onUploadClicked);
+        menu.addAction("Chop / Slice Sample...", this, &MainWindow::onChopClicked);
+        auto* dl_act = menu.addAction("Download to WAV...", this, &MainWindow::onDownloadClicked);
+        dl_act->setEnabled(!is_empty);
+        auto* del_act = menu.addAction(QString("Erase Slot %1").arg(slot), this, &MainWindow::onDeleteClicked);
+        del_act->setEnabled(!is_empty);
+        menu.addSeparator();
+    }
+
+    auto* sel_menu = menu.addMenu("Selection");
+    sel_menu->addAction("Select All (Ctrl+A)", table_, &QTableWidget::selectAll);
+    sel_menu->addAction("Select All Occupied", this, [this]() {
+        table_->clearSelection();
+        for (int i = 0; i < 200; ++i) {
+            if (!slots_[i].is_empty() && !table_->isRowHidden(i)) {
+                table_->selectRow(i);
+            }
+        }
+    });
+    sel_menu->addAction("Select All Empty", this, [this]() {
+        table_->clearSelection();
+        for (int i = 0; i < 200; ++i) {
+            if (slots_[i].is_empty() && !table_->isRowHidden(i)) {
+                table_->selectRow(i);
+            }
+        }
+    });
+    sel_menu->addAction("Invert Selection", this, [this]() {
+        auto current_sel = selectedSlots();
+        std::unordered_set<int> sel_set(current_sel.begin(), current_sel.end());
+        table_->clearSelection();
+        for (int i = 0; i < 200; ++i) {
+            if (!table_->isRowHidden(i) && sel_set.find(i) == sel_set.end()) {
+                table_->selectRow(i);
+            }
+        }
+    });
+    sel_menu->addAction("Clear Selection", table_, &QTableWidget::clearSelection);
 
     menu.exec(table_->viewport()->mapToGlobal(pos));
 }
@@ -472,6 +773,7 @@ void MainWindow::onFilterChanged() {
 
         table_->setRowHidden(i, !visible);
     }
+    onTableSelectionChanged();
 }
 
 void MainWindow::onUploadClicked() {
@@ -592,60 +894,102 @@ void MainWindow::onChopClicked() {
 }
 
 void MainWindow::onDownloadClicked() {
-    int slot = selectedSlot();
-    if (slot < 0) {
-        QMessageBox::information(this, "Download", "Please select a slot to download.");
-        return;
-    }
-    const auto& h = slots_[static_cast<size_t>(slot)];
-    if (h.is_empty()) {
-        QMessageBox::information(this, "Download", "Selected slot is empty.");
+    auto sel = selectedSlots();
+    if (sel.empty()) {
+        QMessageBox::information(this, "Download", "Please select slot(s) to download.");
         return;
     }
 
-    QString default_name = QString::fromStdString(h.name.empty() ? ("sample_" + std::to_string(slot)) : h.name) + ".wav";
-    QString file_path = QFileDialog::getSaveFileName(this, "Save WAV File", default_name, "WAV Files (*.wav)");
-    if (!file_path.isEmpty()) {
-        operation_progress_->show();
-        statusBar()->showMessage(QString("Downloading slot %1 to %2...").arg(slot).arg(file_path));
-        QMetaObject::invokeMethod(worker_, "downloadSample", Qt::QueuedConnection,
-                                  Q_ARG(int, slot), Q_ARG(QString, file_path));
+    std::vector<int> occupied_slots;
+    for (int s : sel) {
+        if (s >= 0 && static_cast<size_t>(s) < slots_.size() && !slots_[s].is_empty()) {
+            occupied_slots.push_back(s);
+        }
+    }
+
+    if (occupied_slots.empty()) {
+        QMessageBox::information(this, "Download", "All selected slots are empty.");
+        return;
+    }
+
+    if (occupied_slots.size() == 1) {
+        int slot = occupied_slots.front();
+        const auto& h = slots_[static_cast<size_t>(slot)];
+        QString default_name = QString::fromStdString(h.name.empty() ? ("sample_" + std::to_string(slot)) : h.name) + ".wav";
+        QString file_path = QFileDialog::getSaveFileName(this, "Save WAV File", default_name, "WAV Files (*.wav)");
+        if (!file_path.isEmpty()) {
+            operation_progress_->show();
+            statusBar()->showMessage(QString("Downloading slot %1 to %2...").arg(slot).arg(file_path));
+            QMetaObject::invokeMethod(worker_, "downloadSample", Qt::QueuedConnection,
+                                      Q_ARG(int, slot), Q_ARG(QString, file_path));
+        }
+    } else {
+        QString dir_path = QFileDialog::getExistingDirectory(
+            this,
+            tr("Select Destination Directory to Export %1 Samples").arg(occupied_slots.size()),
+            QString(),
+            QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks
+        );
+        if (!dir_path.isEmpty()) {
+            operation_progress_->show();
+            statusBar()->showMessage(QString("Downloading %1 selected samples to %2...").arg(occupied_slots.size()).arg(dir_path));
+            QMetaObject::invokeMethod(worker_, "downloadSamples", Qt::QueuedConnection,
+                                      Q_ARG(std::vector<int>, occupied_slots),
+                                      Q_ARG(QString, dir_path));
+        }
     }
 }
 
 void MainWindow::onDeleteClicked() {
-    int slot = selectedSlot();
-    if (slot < 0) {
-        QMessageBox::information(this, "Erase Slot", "Please select a slot to erase.");
+    auto sel = selectedSlots();
+    if (sel.empty()) {
+        QMessageBox::information(this, "Erase Slot", "Please select slot(s) to erase.");
         return;
     }
 
-    const auto& h = slots_[static_cast<size_t>(slot)];
-    if (h.is_empty()) {
-        QMessageBox::information(this, "Erase Slot", "Slot is already empty.");
+    std::vector<int> occupied_slots;
+    for (int s : sel) {
+        if (s >= 0 && static_cast<size_t>(s) < slots_.size() && !slots_[s].is_empty()) {
+            occupied_slots.push_back(s);
+        }
+    }
+
+    if (occupied_slots.empty()) {
+        QMessageBox::information(this, "Erase Slot", "All selected slots are already empty.");
         return;
     }
 
-    auto reply = QMessageBox::question(
-        this, "Confirm Erase",
-        QString("Are you sure you want to erase slot %1 (\"%2\") from Volca?").arg(slot).arg(QString::fromStdString(h.name)),
-        QMessageBox::Yes | QMessageBox::No
-    );
+    if (occupied_slots.size() == 1) {
+        int slot = occupied_slots.front();
+        const auto& h = slots_[static_cast<size_t>(slot)];
+        auto reply = QMessageBox::question(
+            this, "Confirm Erase",
+            QString("Are you sure you want to erase slot %1 (\"%2\") from Volca?").arg(slot).arg(QString::fromStdString(h.name)),
+            QMessageBox::Yes | QMessageBox::No
+        );
 
-    if (reply == QMessageBox::Yes) {
-        sample_cache_.erase(slot);
-        operation_progress_->show();
-        statusBar()->showMessage(QString("Erasing slot %1...").arg(slot));
-        QMetaObject::invokeMethod(worker_, "deleteSample", Qt::QueuedConnection, Q_ARG(int, slot));
-    }
-}
+        if (reply == QMessageBox::Yes) {
+            sample_cache_.erase(slot);
+            operation_progress_->show();
+            statusBar()->showMessage(QString("Erasing slot %1...").arg(slot));
+            QMetaObject::invokeMethod(worker_, "deleteSample", Qt::QueuedConnection, Q_ARG(int, slot));
+        }
+    } else {
+        auto reply = QMessageBox::question(
+            this, "Confirm Batch Erase",
+            QString("Are you sure you want to erase %1 selected sample slots from Volca?").arg(occupied_slots.size()),
+            QMessageBox::Yes | QMessageBox::No
+        );
 
-void MainWindow::onExportAllClicked() {
-    QString dir = QFileDialog::getExistingDirectory(this, "Select Destination Directory to Export All Samples");
-    if (!dir.isEmpty()) {
-        operation_progress_->show();
-        statusBar()->showMessage("Exporting all occupied samples...");
-        QMetaObject::invokeMethod(worker_, "downloadAllSamples", Qt::QueuedConnection, Q_ARG(QString, dir));
+        if (reply == QMessageBox::Yes) {
+            for (int s : occupied_slots) {
+                sample_cache_.erase(s);
+            }
+            operation_progress_->show();
+            statusBar()->showMessage(QString("Erasing %1 slots...").arg(occupied_slots.size()));
+            QMetaObject::invokeMethod(worker_, "deleteSamples", Qt::QueuedConnection,
+                                      Q_ARG(std::vector<int>, occupied_slots));
+        }
     }
 }
 
@@ -706,6 +1050,114 @@ void MainWindow::onDownloadPackageClicked() {
                               Q_ARG(QString, author_name));
 }
 
+void MainWindow::onUploadPackageClicked() {
+    if (!dev_status_label_->text().contains("Connected") && !dev_status_label_->text().contains("Firmware")) {
+        QMessageBox::warning(this, "Upload Package", "Please connect to the Volca Sample 2 first.");
+        return;
+    }
+
+    QString file_path = QFileDialog::getOpenFileName(
+        this,
+        "Select Preset Package to Restore",
+        QString(),
+        "Volca Sample 2 Preset (*.ivlcsplpreset)"
+    );
+    if (file_path.isEmpty()) {
+        return;
+    }
+
+    volsa2::PackageData pkg;
+    try {
+        pkg = volsa2::load_package(file_path.toStdString());
+    } catch (const std::exception& e) {
+        QMessageBox::critical(this, "Package Error",
+                              QString("Failed to open or parse preset package:\n%1").arg(e.what()));
+        return;
+    }
+
+    int active_samples = 0;
+    for (const auto& s : pkg.samples) {
+        if (s.data.has_value() && !s.data->data.empty()) {
+            active_samples++;
+        }
+    }
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Restore Package to Volca Sample 2");
+    dlg.setMinimumWidth(440);
+    auto* layout = new QVBoxLayout(&dlg);
+
+    // Package details group
+    auto* info_group = new QGroupBox("Package Information", &dlg);
+    auto* info_layout = new QFormLayout(info_group);
+    info_layout->addRow("Collection Name:", new QLabel(QString::fromStdString(pkg.info.name.empty() ? "(none)" : pkg.info.name)));
+    if (!pkg.info.author.empty()) {
+        info_layout->addRow("Author / Creator:", new QLabel(QString::fromStdString(pkg.info.author)));
+    }
+    if (!pkg.info.date.empty()) {
+        info_layout->addRow("Date Created:", new QLabel(QString::fromStdString(pkg.info.date)));
+    }
+    info_layout->addRow("Patterns Found:", new QLabel(QString("%1 Sequencer Patterns").arg(pkg.programs.size())));
+    info_layout->addRow("Active Samples:", new QLabel(QString("%1 of 200 Slots").arg(active_samples)));
+    layout->addWidget(info_group);
+
+    // Transfer options group
+    auto* opt_group = new QGroupBox("Transfer Options", &dlg);
+    auto* opt_layout = new QVBoxLayout(opt_group);
+    auto* chk_samples = new QCheckBox("Upload Samples (Audio and settings)", opt_group);
+    chk_samples->setChecked(true);
+    auto* chk_patterns = new QCheckBox("Upload Patterns (All 16 sequence memories)", opt_group);
+    chk_patterns->setChecked(true);
+    auto* chk_erase_empty = new QCheckBox("Clean Restore: Erase unused old slots first (frees memory)", opt_group);
+    chk_erase_empty->setToolTip("Scans and erases old occupied device slots that are empty in this package before uploading audio, preventing out-of-memory errors.");
+    chk_erase_empty->setChecked(true);
+    opt_layout->addWidget(chk_samples);
+    opt_layout->addWidget(chk_patterns);
+    opt_layout->addWidget(chk_erase_empty);
+    layout->addWidget(opt_group);
+
+    // Prominent Warning
+    auto* warn_label = new QLabel(
+        "<div style='background-color: #3d2414; border: 1px solid #f07828; border-radius: 4px; padding: 8px; color: #ffbe76;'>"
+        "<b>⚠️ Memory Overwrite Warning:</b><br/>"
+        "This operation will overwrite patterns and samples in your Volca Sample 2 hardware memory."
+        "</div>",
+        &dlg
+    );
+    warn_label->setWordWrap(true);
+    layout->addWidget(warn_label);
+
+    auto* btn_box = new QDialogButtonBox(&dlg);
+    auto* btn_upload = btn_box->addButton("Upload to Device", QDialogButtonBox::AcceptRole);
+    btn_upload->setStyleSheet("QPushButton { background-color: #f07828; color: #ffffff; font-weight: bold; padding: 6px 14px; }");
+    btn_box->addButton("Cancel", QDialogButtonBox::RejectRole);
+    connect(btn_box, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(btn_box, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    layout->addWidget(btn_box);
+
+    if (dlg.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    bool upload_samples = chk_samples->isChecked();
+    bool upload_patterns = chk_patterns->isChecked();
+    bool erase_empty = chk_erase_empty->isChecked();
+
+    if (!upload_samples && !upload_patterns) {
+        QMessageBox::information(this, "Upload Package", "Neither samples nor patterns were selected to upload.");
+        return;
+    }
+
+    sample_cache_.clear();
+    operation_progress_->show();
+    statusBar()->showMessage(QString("Uploading package %1 to Volca Sample 2...").arg(QFileInfo(file_path).fileName()));
+    QMetaObject::invokeMethod(worker_, "uploadPackage", Qt::QueuedConnection,
+                              Q_ARG(QString, file_path),
+                              Q_ARG(bool, upload_samples),
+                              Q_ARG(bool, upload_patterns),
+                              Q_ARG(bool, erase_empty));
+}
+
 void MainWindow::onPlayClicked() {
     if (current_samples_.empty() || !audio_player_) return;
     btn_stop_->setEnabled(true);
@@ -754,8 +1206,18 @@ void MainWindow::dropEvent(QDropEvent* event) {
     auto urls = event->mimeData()->urls();
     if (urls.isEmpty()) return;
 
-    QString file_path = urls.first().toLocalFile();
-    if (file_path.isEmpty()) return;
+    QStringList audio_files;
+    QStringList valid_exts = {"wav", "aiff", "aif", "flac", "ogg"};
+    for (const auto& url : urls) {
+        QString fp = url.toLocalFile();
+        if (!fp.isEmpty() && valid_exts.contains(QFileInfo(fp).suffix().toLower())) {
+            audio_files.append(fp);
+        }
+    }
+
+    if (audio_files.isEmpty()) {
+        audio_files.append(urls.first().toLocalFile());
+    }
 
     int slot_at_drop = -1;
     QPoint table_pos = table_->viewport()->mapFrom(this, event->position().toPoint());
@@ -764,20 +1226,49 @@ void MainWindow::dropEvent(QDropEvent* event) {
         slot_at_drop = row;
     } else {
         slot_at_drop = selectedSlot();
+        if (slot_at_drop < 0) slot_at_drop = 0;
     }
 
-    UploadDialog dlg(slots_, slot_at_drop, file_path, this);
-    if (dlg.exec() == QDialog::Accepted) {
-        int slot = dlg.targetSlot();
-        QString name = dlg.sampleName();
-        const auto& data = dlg.audioData();
+    if (audio_files.size() == 1) {
+        UploadDialog dlg(slots_, slot_at_drop, audio_files.first(), this);
+        if (dlg.exec() == QDialog::Accepted) {
+            int slot = dlg.targetSlot();
+            QString name = dlg.sampleName();
+            const auto& data = dlg.audioData();
 
-        sample_cache_[slot] = data;
-        operation_progress_->show();
-        statusBar()->showMessage(QString("Uploading dropped file to slot %1...").arg(slot));
-        QMetaObject::invokeMethod(worker_, "uploadSample", Qt::QueuedConnection,
-                                  Q_ARG(int, slot), Q_ARG(QString, name),
-                                  Q_ARG(std::vector<int16_t>, data));
+            sample_cache_[slot] = data;
+            operation_progress_->show();
+            statusBar()->showMessage(QString("Uploading dropped file to slot %1...").arg(slot));
+            QMetaObject::invokeMethod(worker_, "uploadSample", Qt::QueuedConnection,
+                                      Q_ARG(int, slot), Q_ARG(QString, name),
+                                      Q_ARG(std::vector<int16_t>, data));
+        }
+    } else {
+        auto reply = QMessageBox::question(
+            this, "Batch Upload",
+            QString("Upload %1 audio files sequentially starting from slot %2?").arg(audio_files.size()).arg(slot_at_drop),
+            QMessageBox::Yes | QMessageBox::No
+        );
+
+        if (reply == QMessageBox::Yes) {
+            int cur_slot = slot_at_drop;
+            for (const auto& file_path : audio_files) {
+                if (cur_slot >= 200) break;
+                try {
+                    auto data = volsa2::load_and_convert_audio(file_path.toStdString(), volsa2::MonoMode::Mid);
+                    QString name = QFileInfo(file_path).baseName().left(24);
+                    sample_cache_[cur_slot] = data;
+                    QMetaObject::invokeMethod(worker_, "uploadSample", Qt::QueuedConnection,
+                                              Q_ARG(int, cur_slot), Q_ARG(QString, name),
+                                              Q_ARG(std::vector<int16_t>, data));
+                    cur_slot++;
+                } catch (const std::exception& e) {
+                    statusBar()->showMessage(QString("Failed to convert %1: %2").arg(file_path).arg(e.what()));
+                }
+            }
+            operation_progress_->show();
+            statusBar()->showMessage(QString("Uploading %1 files starting from slot %2...").arg(audio_files.size()).arg(slot_at_drop));
+        }
     }
 }
 
@@ -788,6 +1279,8 @@ void MainWindow::onWorkerConnected(const QString& version, int channel) {
     dev_status_label_->setText(QString("Connected (v%1, Ch %2)").arg(version).arg(channel));
     btn_connect_->setText("Disconnect");
     btn_refresh_->setEnabled(true);
+    btn_refresh_patterns_->setEnabled(true);
+    btn_rename_pattern_->setEnabled(selectedPattern() >= 0);
     statusBar()->showMessage("Connected to Volca Sample 2. Refreshing slot list...");
 
     onRefreshClicked();
@@ -798,6 +1291,12 @@ void MainWindow::onWorkerDisconnected() {
     dev_status_label_->setText("Disconnected");
     btn_connect_->setText("Connect");
     btn_refresh_->setEnabled(false);
+    btn_refresh_patterns_->setEnabled(false);
+    btn_rename_pattern_->setEnabled(false);
+    patterns_loaded_ = false;
+    for (int i = 0; i < 16 && static_cast<size_t>(i) < patterns_.size(); ++i) {
+        updatePatternTableItem(i, patterns_[i]);
+    }
     space_bar_->setFormat("No device");
     space_bar_->setValue(0);
     sample_cache_.clear();
@@ -806,6 +1305,9 @@ void MainWindow::onWorkerDisconnected() {
 
 void MainWindow::onWorkerError(const QString& error) {
     operation_progress_->hide();
+    btn_refresh_->setEnabled(btn_connect_->text() != "Connect");
+    btn_refresh_patterns_->setEnabled(btn_connect_->text() != "Connect");
+    btn_rename_pattern_->setEnabled(btn_connect_->text() != "Connect" && selectedPattern() >= 0);
     statusBar()->showMessage(error, 5000);
     QMessageBox::warning(this, "Device Error", error);
 }
@@ -907,5 +1409,113 @@ void MainWindow::onWorkerSampleDownloaded(int slot, const QString& filePath) {
 void MainWindow::onWorkerBatchFinished(const QString& message) {
     operation_progress_->hide();
     statusBar()->showMessage(message, 5000);
-    QMessageBox::information(this, "Export Complete", message);
+    QMessageBox::information(this, "Operation Complete", message);
+}
+
+// --- Pattern Operations & Slots ---
+
+void MainWindow::onTabChanged(int index) {
+    if (index == 1) { // Patterns tab
+        if (!patterns_loaded_ && btn_connect_->text() != "Connect") {
+            onRefreshPatternsClicked();
+        }
+        btn_rename_pattern_->setEnabled(btn_connect_->text() != "Connect" && selectedPattern() >= 0);
+    }
+}
+
+void MainWindow::onRefreshPatternsClicked() {
+    if (btn_connect_->text() == "Connect") {
+        QMessageBox::information(this, "Not Connected", "Please connect to the Volca Sample 2 first.");
+        return;
+    }
+    btn_refresh_patterns_->setEnabled(false);
+    btn_rename_pattern_->setEnabled(false);
+    operation_progress_->show();
+    statusBar()->showMessage("Reading sequencer patterns from Volca...");
+    QMetaObject::invokeMethod(worker_, "refreshAllPatterns", Qt::QueuedConnection);
+}
+
+void MainWindow::onRenamePatternClicked() {
+    int row = selectedPattern();
+    if (row < 0 || static_cast<size_t>(row) >= patterns_.size()) {
+        QMessageBox::information(this, "Select Pattern", "Please select a pattern to rename.");
+        return;
+    }
+    onPatternDoubleClicked(row, 1);
+}
+
+void MainWindow::onPatternDoubleClicked(int row, int /*col*/) {
+    if (btn_connect_->text() == "Connect") {
+        QMessageBox::information(this, "Not Connected", "Please connect to the Volca Sample 2 first.");
+        return;
+    }
+    if (row < 0 || static_cast<size_t>(row) >= patterns_.size()) {
+        return;
+    }
+
+    QString current_name = QString::fromStdString(patterns_[row].name);
+    if (current_name.isEmpty()) {
+        current_name = QString("Pattern %1").arg(row + 1);
+    }
+
+    bool ok = false;
+    QString new_name = QInputDialog::getText(
+        this,
+        tr("Rename Pattern %1").arg(row + 1),
+        tr("Enter new pattern name (max 48 chars):"),
+        QLineEdit::Normal,
+        current_name,
+        &ok
+    );
+
+    if (ok && !new_name.trimmed().isEmpty()) {
+        new_name = new_name.trimmed();
+        if (new_name.length() > 48) {
+            new_name = new_name.left(48);
+        }
+
+        // Recreate pattern with new name preserving existing raw sequence binary
+        patterns_[row] = volsa2::PatternData::create(
+            static_cast<uint8_t>(row),
+            new_name.toStdString(),
+            patterns_[row].raw_data
+        );
+
+        updatePatternTableItem(row, patterns_[row]);
+        operation_progress_->show();
+        statusBar()->showMessage(QString("Writing pattern %1 to Volca...").arg(row + 1));
+
+        QMetaObject::invokeMethod(
+            worker_,
+            "uploadPattern",
+            Qt::QueuedConnection,
+            Q_ARG(int, row),
+            Q_ARG(volsa2::PatternData, patterns_[row])
+        );
+    }
+}
+
+void MainWindow::onWorkerPatternLoaded(int slot, const volsa2::PatternData& pattern) {
+    if (slot >= 0 && static_cast<size_t>(slot) < patterns_.size()) {
+        patterns_[static_cast<size_t>(slot)] = pattern;
+        updatePatternTableItem(slot, pattern);
+    }
+}
+
+void MainWindow::onWorkerAllPatternsLoaded(const std::vector<volsa2::PatternData>& patterns) {
+    patterns_ = patterns;
+    patterns_loaded_ = true;
+    for (int i = 0; i < 16 && static_cast<size_t>(i) < patterns.size(); ++i) {
+        updatePatternTableItem(i, patterns[static_cast<size_t>(i)]);
+    }
+    btn_refresh_patterns_->setEnabled(true);
+    btn_rename_pattern_->setEnabled(selectedPattern() >= 0);
+    operation_progress_->hide();
+    statusBar()->showMessage("All 16 patterns loaded.");
+}
+
+void MainWindow::onWorkerPatternUploaded(int slot, const QString& name) {
+    operation_progress_->hide();
+    btn_rename_pattern_->setEnabled(selectedPattern() >= 0);
+    statusBar()->showMessage(QString("Pattern %1 (\"%2\") uploaded to device.").arg(slot + 1).arg(name), 4000);
 }

@@ -85,13 +85,43 @@ void test_pattern_data_errors() {
     }
     assert(caught);
 
+    // Invalid raw_data size for encode
+    auto invalid_pat = pattern;
+    invalid_pat.raw_data.resize(500);
+    caught = false;
+    try {
+        invalid_pat.encode(0);
+    } catch (const std::exception&) {
+        caught = true;
+    }
+    assert(caught);
+
     std::cout << "[PASS] test_pattern_data_errors" << std::endl;
+}
+
+void test_all_16_pattern_slots() {
+    for (uint8_t slot = 0; slot < 16; ++slot) {
+        std::string name = "Pattern_" + std::to_string(slot);
+        auto p = volsa2::PatternData::create(slot, name);
+        assert(p.pattern_no == slot);
+        assert(p.name == name);
+        auto sysex = p.encode(slot % 16);
+        assert(sysex.size() == volsa2::PatternData::SYSEX_MESSAGE_SIZE);
+        assert(sysex[6] == 0x4D);
+        assert(sysex[7] == slot);
+
+        auto parsed = volsa2::PatternData::parse(sysex);
+        assert(parsed.pattern_no == slot);
+        assert(parsed.name == name);
+    }
+    std::cout << "[PASS] test_all_16_pattern_slots" << std::endl;
 }
 
 int main() {
     test_pattern_dump_request();
     test_pattern_data_roundtrip();
     test_pattern_data_errors();
+    test_all_16_pattern_slots();
     std::cout << "All pattern proto tests passed!" << std::endl;
     return 0;
 }
