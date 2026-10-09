@@ -5,3 +5,4 @@ cmake-build-*/
 *.user
 *.swp
 *~
+run-gui.sh

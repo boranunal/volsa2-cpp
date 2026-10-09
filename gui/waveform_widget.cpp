@@ -275,6 +275,11 @@ void WaveformWidget::paintEvent(QPaintEvent* /*event*/) {
     if (sel_x_start > sel_x_end) std::swap(sel_x_start, sel_x_end);
 
     if (has_selection_) {
+        // Active selection region: subtle amber tint
+        if (sel_x_end > sel_x_start) {
+            p.fillRect(sel_x_start, 0, sel_x_end - sel_x_start, h, QColor(245, 125, 30, 20));
+        }
+
         // Dark shadow overlay over unselected region on the left [0, sel_x_start]
         if (sel_x_start > 0) {
             p.fillRect(0, 0, sel_x_start, h, QColor(10, 10, 16, 185));
@@ -284,8 +289,8 @@ void WaveformWidget::paintEvent(QPaintEvent* /*event*/) {
             p.fillRect(sel_x_end, 0, w - sel_x_end, h, QColor(10, 10, 16, 185));
         }
 
-        // Active crop region: subtle top/bottom guide borders
-        p.setPen(QColor(240, 120, 40, 120));
+        // Active crop region: bright guide borders
+        p.setPen(QPen(QColor(245, 125, 30, 180), 1));
         p.drawLine(sel_x_start, 0, sel_x_end, 0);
         p.drawLine(sel_x_start, h - 1, sel_x_end, h - 1);
     }
@@ -326,6 +331,7 @@ void WaveformWidget::paintEvent(QPaintEvent* /*event*/) {
                    << QPoint(sel_x_start, 16);
         p.setBrush(QColor(0, 229, 176));
         p.drawPolygon(start_flag);
+        p.setBrush(Qt::NoBrush);
         p.setPen(QColor(10, 20, 20));
         QFont f = p.font();
         f.setPixelSize(9);
@@ -344,12 +350,14 @@ void WaveformWidget::paintEvent(QPaintEvent* /*event*/) {
                  << QPoint(sel_x_end, 16);
         p.setBrush(QColor(255, 68, 68));
         p.drawPolygon(end_flag);
+        p.setBrush(Qt::NoBrush);
         p.setPen(QColor(255, 255, 255));
         p.drawText(QRect(sel_x_end - 13, 1, 11, 11), Qt::AlignCenter, "E");
     }
 
-    // 6. Border framing
+    // 6. Border framing (explicitly ensure Qt::NoBrush so interior is not filled!)
     p.setRenderHint(QPainter::Antialiasing, false);
+    p.setBrush(Qt::NoBrush);
     p.setPen(QColor(50, 50, 60));
     p.drawRect(0, 0, w - 1, h - 1);
 

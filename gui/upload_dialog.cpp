@@ -120,12 +120,6 @@ UploadDialog::UploadDialog(const std::vector<volsa2::SampleHeader>& current_slot
     connect(btn_reset_crop_, &QPushButton::clicked, this, &UploadDialog::onResetCrop);
     chop_bar->addWidget(btn_reset_crop_);
 
-    btn_toggle_crop_view_ = new QPushButton("🔍 Preview Cropped");
-    btn_toggle_crop_view_->setToolTip("Toggle waveform view between Full Waveform and Cropped Selection.");
-    btn_toggle_crop_view_->setStyleSheet("QPushButton { border-color: #00b4d8; color: #48cae4; font-weight: bold; }");
-    connect(btn_toggle_crop_view_, &QPushButton::clicked, this, &UploadDialog::onToggleCropView);
-    chop_bar->addWidget(btn_toggle_crop_view_);
-
     chop_bar->addStretch();
     main_layout->addLayout(chop_bar);
 
@@ -141,10 +135,6 @@ UploadDialog::UploadDialog(const std::vector<volsa2::SampleHeader>& current_slot
 
     connect(&audio_player_, &AlsaAudioPlayer::positionChanged, this, [this](double norm_pos) {
         if (converted_samples_.empty()) return;
-        if (showing_cropped_view_) {
-            waveform_widget_->setPlayheadPosition(norm_pos);
-            return;
-        }
         size_t s = static_cast<size_t>(std::clamp(std::round(start_crop_spin_->value() * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(converted_samples_.size())));
         size_t e = static_cast<size_t>(std::clamp(std::round(end_crop_spin_->value() * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(converted_samples_.size())));
         if (e <= s) {
@@ -255,7 +245,6 @@ void UploadDialog::onMonoModeChanged() {
 }
 
 void UploadDialog::onWaveformSelectionChanged(size_t start, size_t end) {
-    if (showing_cropped_view_) return;
     double s_sec = static_cast<double>(start) / volsa2::VOLCA_SAMPLERATE;
     double e_sec = static_cast<double>(end) / volsa2::VOLCA_SAMPLERATE;
     start_crop_spin_->blockSignals(true);
@@ -278,13 +267,7 @@ void UploadDialog::onCropSpinChanged() {
     }
     size_t s_smpls = static_cast<size_t>(std::clamp(std::round(s * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(converted_samples_.size())));
     size_t e_smpls = static_cast<size_t>(std::clamp(std::round(e * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(converted_samples_.size())));
-    if (showing_cropped_view_) {
-        auto cropped = audioData();
-        waveform_widget_->setAudioData(cropped, volsa2::VOLCA_SAMPLERATE);
-        waveform_widget_->clearSelection();
-    } else {
-        waveform_widget_->setSelection(s_smpls, e_smpls);
-    }
+    waveform_widget_->setSelection(s_smpls, e_smpls);
     updateCropReadout();
 }
 
@@ -301,13 +284,7 @@ void UploadDialog::onAutoTrimSilence() {
     start_crop_spin_->blockSignals(false);
     end_crop_spin_->blockSignals(false);
 
-    if (showing_cropped_view_) {
-        auto cropped = audioData();
-        waveform_widget_->setAudioData(cropped, volsa2::VOLCA_SAMPLERATE);
-        waveform_widget_->clearSelection();
-    } else {
-        waveform_widget_->setSelection(start_bound, end_bound);
-    }
+    waveform_widget_->setSelection(start_bound, end_bound);
     updateCropReadout();
 }
 
@@ -321,36 +298,8 @@ void UploadDialog::onResetCrop() {
     start_crop_spin_->blockSignals(false);
     end_crop_spin_->blockSignals(false);
 
-    if (showing_cropped_view_) {
-        showing_cropped_view_ = false;
-        btn_toggle_crop_view_->setText("🔍 Preview Cropped");
-        btn_toggle_crop_view_->setStyleSheet("QPushButton { border-color: #00b4d8; color: #48cae4; font-weight: bold; }");
-        waveform_widget_->setSelectionEnabled(true);
-    }
-    waveform_widget_->setAudioData(converted_samples_, volsa2::VOLCA_SAMPLERATE);
     waveform_widget_->clearSelection();
     updateCropReadout();
-}
-
-void UploadDialog::onToggleCropView() {
-    if (converted_samples_.empty()) return;
-    showing_cropped_view_ = !showing_cropped_view_;
-    if (showing_cropped_view_) {
-        btn_toggle_crop_view_->setText("↩ Show Full Waveform");
-        btn_toggle_crop_view_->setStyleSheet("QPushButton { background-color: #00aa88; color: white; font-weight: bold; }");
-        auto cropped = audioData();
-        waveform_widget_->setAudioData(cropped, volsa2::VOLCA_SAMPLERATE);
-        waveform_widget_->clearSelection();
-        waveform_widget_->setSelectionEnabled(false);
-    } else {
-        btn_toggle_crop_view_->setText("🔍 Preview Cropped");
-        btn_toggle_crop_view_->setStyleSheet("QPushButton { border-color: #00b4d8; color: #48cae4; font-weight: bold; }");
-        waveform_widget_->setAudioData(converted_samples_, volsa2::VOLCA_SAMPLERATE);
-        waveform_widget_->setSelectionEnabled(true);
-        size_t s = static_cast<size_t>(std::clamp(std::round(start_crop_spin_->value() * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(converted_samples_.size())));
-        size_t e = static_cast<size_t>(std::clamp(std::round(end_crop_spin_->value() * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(converted_samples_.size())));
-        waveform_widget_->setSelection(s, e);
-    }
 }
 
 void UploadDialog::updateCropReadout() {
@@ -404,9 +353,6 @@ void UploadDialog::updateFileInfoAndConversion() {
         start_crop_spin_->blockSignals(false);
         end_crop_spin_->blockSignals(false);
 
-        showing_cropped_view_ = false;
-        btn_toggle_crop_view_->setText("🔍 Preview Cropped");
-        btn_toggle_crop_view_->setStyleSheet("QPushButton { border-color: #00b4d8; color: #48cae4; font-weight: bold; }");
         waveform_widget_->setSelectionEnabled(true);
         waveform_widget_->setAudioData(converted_samples_, volsa2::VOLCA_SAMPLERATE);
         waveform_widget_->clearSelection();

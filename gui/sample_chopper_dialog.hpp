@@ -58,7 +58,6 @@ private slots:
     void onAutoTrimSilence();
     void onWaveformSelectionChanged(size_t start, size_t end);
     void onCropSpinChanged();
-    void onToggleCropView();
     void onCropInPlace();
     void onExportSlices();
 
@@ -81,8 +80,6 @@ private:
     QDoubleSpinBox* start_crop_spin_{nullptr};///< Crop start in seconds
     QDoubleSpinBox* end_crop_spin_{nullptr};  ///< Crop end in seconds
     QPushButton* btn_auto_trim_{nullptr};
-    QPushButton* btn_toggle_crop_view_{nullptr};
-    bool showing_cropped_view_{false};
 
     // Playback
     QPushButton* btn_play_slice_{nullptr};

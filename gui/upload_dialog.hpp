@@ -81,7 +81,6 @@ private slots:
     void onCropSpinChanged();
     void onAutoTrimSilence();
     void onResetCrop();
-    void onToggleCropView();
     void updateFileInfoAndConversion();
 
 private:
@@ -102,9 +101,7 @@ private:
     QDoubleSpinBox* end_crop_spin_{nullptr};  ///< Crop end in seconds.
     QPushButton* btn_auto_trim_{nullptr};    ///< Auto-trim dead air button.
     QPushButton* btn_reset_crop_{nullptr};   ///< Reset crop button.
-    QPushButton* btn_toggle_crop_view_{nullptr}; ///< Toggle between full waveform and cropped waveform preview.
     QLabel* crop_info_label_{nullptr};       ///< Cropped duration / sample count readout.
-    bool showing_cropped_view_{false};
 
     QPushButton* btn_play_{nullptr};         ///< Button to audition the cropped audio.
     QPushButton* btn_upload_{nullptr};       ///< Dialog accept / upload trigger button.
