@@ -3,7 +3,6 @@
  * @brief GUI Application entry point for Volsa 2.
  * @details Initializes QApplication with dark palette styling, window titles,
  *          and instantiates the primary MainWindow.
- * @author Volsa2 Project Team
  * @date 2026
  */
 

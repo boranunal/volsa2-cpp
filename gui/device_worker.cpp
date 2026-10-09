@@ -1,7 +1,6 @@
 /**
  * @file device_worker.cpp
  * @brief Implementation of asynchronous background ALSA worker slots and signal dispatch.
- * @author Volsa2 Project Team
  * @date 2026
  */
 

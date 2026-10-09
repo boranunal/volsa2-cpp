@@ -2,7 +2,6 @@
  * @file sample_chopper_dialog.hpp
  * @brief Modal dialog for beat slicing, interactive slice auditioning, manual sample trimming,
  *        and batch export of slices to consecutive Volca Sample 2 slots.
- * @author Volsa2 Project Team
  * @date 2026
  */
 

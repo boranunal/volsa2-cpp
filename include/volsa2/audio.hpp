@@ -5,7 +5,6 @@
  *          via libsndfile, channel downmixing modes (Mid, Left, Right, Side), high-quality
  *          sinc band-limited resampling to the Volca Sample 2 native sample rate (31.25 kHz)
  *          via libsamplerate, and standard 16-bit RIFF WAV serialization.
- * @author Volsa2 Project Team
  * @date 2026
  */
 

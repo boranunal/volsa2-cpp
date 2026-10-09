@@ -3,7 +3,6 @@
  * @brief Background QObject worker executing ALSA MIDI SysEx transfers on a secondary thread.
  * @details Ensures the Qt GUI remains fluid and completely non-blocking during prolonged
  *          SysEx transactions (full memory queries, sample uploads, sample downloads).
- * @author Volsa2 Project Team
  * @date 2026
  */
 

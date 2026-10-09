@@ -4,7 +4,6 @@
  * @details Integrates the ALSA device worker, 200-slot interactive sample table,
  *          dynamic memory bar, waveform visualizer, audio player, drag-and-drop handler,
  *          and sample upload/download actions.
- * @author Volsa2 Project Team
  * @date 2026
  */
 

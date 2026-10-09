@@ -1,7 +1,6 @@
 /**
  * @file test_audio.cpp
  * @brief Comprehensive unit tests for audio DSP, format inspection, resampling, and WAV I/O.
- * @author Volsa2 Project Team
  * @date 2026
  */
 

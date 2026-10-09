@@ -3,7 +3,6 @@
  * @brief Implementation of audio reading, resampling, downmixing, and WAV writing.
  * @details Leverages libsndfile for decoding arbitrary audio codecs, libsamplerate
  *          for high-fidelity sinc resampling, and custom binary formatting for RIFF WAV export.
- * @author Volsa2 Project Team
  * @date 2026
  */
 

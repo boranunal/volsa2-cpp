@@ -4,7 +4,6 @@
  * @details Provides fast, memory-safe algorithms for sub-span extraction with anti-click
  *          micro-fades, threshold-based silence detection, equal grid beat slicing,
  *          and energy-flux transient onset detection.
- * @author Volsa2 Project Team
  * @date 2026
  */
 

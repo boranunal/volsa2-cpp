@@ -5,7 +5,6 @@
  *          for communicating with the KORG Volca Sample 2 over standard MIDI SysEx protocols.
  *          Covers device inquiry, device discovery, memory status, sample metadata headers,
  *          and raw PCM audio dumps.
- * @author Volsa2 Project Team
  * @date 2026
  */
 

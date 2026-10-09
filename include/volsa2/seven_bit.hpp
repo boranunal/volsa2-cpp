@@ -8,7 +8,6 @@
  *          The first byte of each 8-byte octet aggregates the Most Significant Bits (MSBs) of
  *          the remaining 7 bytes. This file implements the U7 value type and bidirectional
  *          streaming conversion between 8-bit and 7-bit representations.
- * @author Volsa2 Project Team
  * @date 2026
  */
 

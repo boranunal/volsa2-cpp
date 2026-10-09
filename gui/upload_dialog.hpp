@@ -5,7 +5,6 @@
  * @details Provides file browsing, automated metadata extraction, waveform preview with
  *          interactive crop handles, silence auto-trimming, audition playback of cropped audio,
  *          target slot selection with auto-empty detection, and overwrite/backup safeguards.
- * @author Volsa2 Project Team
  * @date 2026
  */
 

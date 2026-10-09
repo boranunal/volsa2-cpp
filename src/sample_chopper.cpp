@@ -1,7 +1,6 @@
 /**
  * @file sample_chopper.cpp
  * @brief Implementation of sample chopping, silence trimming, and beat slicing utilities.
- * @author Volsa2 Project Team
  * @date 2026
  */
 

@@ -4,7 +4,6 @@
  * @details Encapsulates client registration, automatic port discovery, duplex subscription,
  *          chunked SysEx transmission with flow-control cooldown, and high-level sample
  *          librarian operations (list, upload, download, delete).
- * @author Volsa2 Project Team
  * @date 2026
  */
 

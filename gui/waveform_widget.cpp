@@ -2,7 +2,6 @@
  * @file waveform_widget.cpp
  * @brief Implementation of custom audio waveform painting, interactive region selection,
  *        beat slicing indicators, and playhead tracking.
- * @author Volsa2 Project Team
  * @date 2026
  */
 

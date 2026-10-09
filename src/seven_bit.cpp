@@ -2,7 +2,6 @@
  * @file seven_bit.cpp
  * @brief Implementation of 7-bit / 8-bit SysEx conversion routines.
  * @details Implements the chunking and bit-packing logic for U8ToU7 and U7ToU8 converters.
- * @author Volsa2 Project Team
  * @date 2026
  */
 

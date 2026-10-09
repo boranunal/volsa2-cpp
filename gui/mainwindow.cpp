@@ -1,7 +1,6 @@
 /**
  * @file mainwindow.cpp
  * @brief Implementation of main GUI window layout, events, actions, and playback.
- * @author Volsa2 Project Team
  * @date 2026
  */
 

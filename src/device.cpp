@@ -3,7 +3,6 @@
  * @brief Implementation of ALSA MIDI Sequencer communication for Volca Sample 2.
  * @details Implements low-level ALSA calls (snd_seq_open, snd_seq_query_next_client,
  *          snd_seq_subscribe_port, snd_seq_event_output_direct, snd_seq_event_input).
- * @author Volsa2 Project Team
  * @date 2026
  */
 

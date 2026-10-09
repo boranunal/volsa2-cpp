@@ -4,7 +4,6 @@
  * @details Handles serialization and deserialization of the official KORG .ivlcsplpreset
  *          ZIP format, bundling 16 pattern sequences, 200 sample metadata descriptors,
  *          raw PCM audio binaries, XML catalogs, and MD5 integrity verification.
- * @author Volsa2 Project Team
  * @date 2026
  */
 

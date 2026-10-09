@@ -1,7 +1,6 @@
 /**
  * @file sample_chopper_dialog.cpp
  * @brief Implementation of interactive beat slicer and sample chopper dialog.
- * @author Volsa2 Project Team
  * @date 2026
  */
 

@@ -1,7 +1,6 @@
 /**
  * @file audio_player.cpp
  * @brief Implementation of AlsaAudioPlayer direct PCM playback engine.
- * @author Volsa2 Project Team
  * @date 2026
  */
 

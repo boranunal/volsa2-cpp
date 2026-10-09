@@ -5,7 +5,6 @@
  * @details Renders peak-min/max audio envelopes on a dark graphite background with
  *          KORG-style orange accents, supports draggable start/end crop markers,
  *          slice boundary indicators, click-to-seek, and playhead tracking.
- * @author Volsa2 Project Team
  * @date 2026
  */
 

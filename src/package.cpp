@@ -2,7 +2,6 @@
  * @file package.cpp
  * @brief Implementation of Volca Sample 2 package (.ivlcsplpreset) container support.
  * @details Reads and writes ZIP archives containing KORG Sound Librarian presets.
- * @author Volsa2 Project Team
  * @date 2026
  */
 

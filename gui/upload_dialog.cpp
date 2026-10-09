@@ -1,7 +1,6 @@
 /**
  * @file upload_dialog.cpp
  * @brief Implementation of sample upload wizard dialog with interactive sample chopping.
- * @author Volsa2 Project Team
  * @date 2026
  */
 

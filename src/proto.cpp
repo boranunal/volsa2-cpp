@@ -3,7 +3,6 @@
  * @brief Implementation of KORG SysEx protocol serialization and parsing.
  * @details Implements binary decoding and encoding for SearchDeviceReply, StatusMessage,
  *          SampleSpaceDump, SampleHeader, and SampleData.
- * @author Volsa2 Project Team
  * @date 2026
  */
 

@@ -1,7 +1,6 @@
 /**
  * @file test_sample_chopper.cpp
  * @brief Unit tests for sample chopping, silence trimming, and beat slicing algorithms.
- * @author Volsa2 Project Team
  * @date 2026
  */
 

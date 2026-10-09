@@ -3,7 +3,6 @@
  * @brief Direct ALSA PCM audio playback service for waveform auditioning and previews.
  * @details Replaces QtMultimedia QAudioSink to guarantee native playback on all Linux
  *          audio configurations (ALSA, PulseAudio, PipeWire) without plugin/device detection failures.
- * @author Volsa2 Project Team
  * @date 2026
  */
 

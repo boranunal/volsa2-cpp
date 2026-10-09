@@ -1,7 +1,6 @@
 /**
  * @file test_proto_comprehensive.cpp
  * @brief Exhaustive validation of protocol encoders, decoders, and error handling.
- * @author Volsa2 Project Team
  * @date 2026
  */
 
