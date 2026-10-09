@@ -1,40 +1,21 @@
-# VolSa 2 (C++20 & Qt 6 Edition)
+# VolSa 2 C++
 
-VolSa 2 is a high-performance Linux sample librarian, audio processing workstation, and sequencer pattern manager for the **KORG Volca Sample 2** communicating directly over the Linux kernel ALSA MIDI Sequencer and ALSA PCM audio subsystems.
+This project is a C++20 translation of the original volsa2 project and includes Qt 6 GUI for the **KORG Volca Sample 2** over ALSA MIDI Sequencer.
 
-The official KORG Sound Librarian does not support Linux, and existing open-source alternatives lacked complete hardware protocol implementations. VolSa 2 bridges this gap with deterministic System Exclusive communication, 7-bit packing math, high-fidelity polyphase sinc resampling, transient-based sample chopping, on-board sequencer pattern renaming, and official `.ivlcsplpreset` package archival.
+The Librarian software does not have a Linux version and the original volsa2 project had no gui and the volsa2gui project was buggy. This project is translated from the volsa2 Rust project to C++20 by AI. Then a Qt6 GUI application is written fully by AI. Basic functional tests are successful but use this program at your own risk. Please report the bugs you found.
 
 ---
 
 ## Features
 
-- **Auto Device Discovery & Hotplugging:** Continuously discovers and connects to the Volca Sample 2 upon launch or hotplug over ALSA Sequencer (`snd_seq_*`), eliminating the need to have hardware powered on beforehand.
-- **Two-Tab Graphical Workstation:**
-  - **Samples Tab (200 Slots):** Table view with metadata inspection, multi-sample selection, dynamic batch operations, and audio waveform visualizer.
-  - **Patterns Tab (16 Slots):** Sequencer pattern manager displaying step sequences and supporting in-place pattern renaming on device flash.
-- **Multi-Sample Extended Selection & Batch Operations:**
-  - Standard desktop multi-selection (Ctrl+Click, Shift+Click, rubber-band selection).
-  - Batch download selected samples to a destination directory as 16-bit 31.25 kHz RIFF WAV files.
-  - Batch erase selected slots with safety confirmation dialogs.
-  - Context menu selection helpers ("Select All Occupied", "Invert Selection", "Clear Selection").
-  - Multi-file drag-and-drop ingestion onto the sample table.
-- **Interactive Transient Chopper & Audio Slicing (`SampleChopperDialog`):**
-  - Slice modes: Equal Grid (2, 4, 8, 16, 32 slices) and Transient Onset Detection (short-time energy flux with sensitivity tuning).
-  - Auto-trim silence thresholding (-60 dB to -12 dB) to strip pre-attack latency and dead air.
-  - Anti-click boundary micro-fades (32-sample half-cosine window).
-  - Custom target slot mapping with live hardware occupancy badges (`[Empty]` vs `[Occupied]`) and auto-advancing pointer.
-  - Direct audition playback and export to hardware slots.
-- **Complete KORG Preset Package Archival (`.ivlcsplpreset`):**
-  - Full backup and restore of all 16 sequencer patterns and 200 samples in the official KORG Sound Librarian ZIP container.
-  - **Pre-Clean Sector Reclaim Engine:** Phase 1 deallocation wipes obsolete hardware slots before streaming new audio binaries, completely preventing `SampleFull` (NAK `0x25`) flash memory exhaustion.
-- **Zero-Dependency Native Audio Engine:**
-  - Integrated `AlsaAudioPlayer` streams audio directly to the ALSA PCM subsystem (`snd_pcm_*`) with automatic mono-to-stereo replication fallback, bypassing flaky desktop multimedia daemons and GStreamer wrappers.
-- **Audiophile DSP Resampling Pipeline:**
-  - 64-bit double-precision audio ingestion via `libsndfile` (WAV, AIFF, FLAC, OGG, MP3).
-  - Band-limited sinc polyphase interpolation (`libsamplerate`, `SRC_SINC_BEST_QUALITY`, >97 dB SNR) downsampling to the Volca's native 31,250 Hz mono linear PCM format.
-  - Mid, Left, Right, and Side downmixing modes.
+- Auto device discovery even after launching the software (Librarian software requires Volca Sample 2 to be powered on and connected to the PC before launching the software).
+- Sample upload/download and preview.
+- Sample chopping - chop and slice your samples without relying on external tools.
+- Full package backup and restore (.ivlcsplpreset) for all 16 sequencer patterns and 200 samples.
+- Supports WAV, AIFF, FLAC, OGG, and other audio formats via `libsndfile`.
 
 ---
+
 
 ## Linux Executable Release Files & Pre-Built Packages
 
@@ -63,7 +44,7 @@ chmod +x release/VolSa2-2.0.0-x86_64.AppImage
 
 ---
 
-## Universal Linux Installer (`install.sh`)
+## Installer script (`install.sh`)
 
 A cross-distribution installation script ([`install.sh`](install.sh)) is included to automate installing binaries, creating application menu entries, setting up desktop shortcuts, and managing custom icons:
 
@@ -151,7 +132,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/usr/local/Qt-6.9.
 cmake --build build -j$(nproc)
 ```
 
-#### Headless / Embedded Build (CLI Only, No Qt Required)
+#### Headless Build (CLI Only, No Qt Required)
 ```sh
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_GUI=OFF
 cmake --build build -j$(nproc)
@@ -206,7 +187,7 @@ Launch the GUI:
 
 - **Connecting:** Click **Connect** to query the ALSA sequencer and attach to the Volca Sample 2.
 - **Scanning Memory:** Click **Refresh All Slots** to scan slots 0–199 and update the flash sector meter.
-- **Auditioning:** Click any row to load its waveform into the visualizer; press **Play** (or Spacebar) to audition through ALSA PCM.
+- **Auditioning:** Click any row to load its waveform into the visualizer; press **Play** to audition through ALSA PCM.
 - **Uploading:** Click **Upload Sample...** or drag and drop audio files directly into the table.
 - **Multi-Selection:** Hold `Ctrl` or `Shift` to select multiple sample slots. The action buttons dynamically switch to "Download Selected (N)..." and "Erase Selected (N)...".
 - **Chopping & Slicing:** Click **Chop / Slice...** to launch the interactive sample chopper. Select Equal Grid or Transient Detection, preview slices, configure custom target slots with live vacancy badges, and export directly to hardware.

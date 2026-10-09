@@ -14,4 +14,5 @@ release/bin/
 release/*.AppImage
 release/*.tar.gz
 release/volsa2-*.sh
+docs/html/
 
