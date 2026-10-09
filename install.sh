@@ -138,7 +138,10 @@ if [ "$INSTALL_MODE" = "system" ]; then
     # Target user for Desktop shortcut if run via sudo
     TARGET_USER="${SUDO_USER:-$USER}"
     TARGET_HOME=$(getent passwd "$TARGET_USER" | cut -d: -f6)
-    DESKTOP_DIR="$TARGET_HOME/Desktop"
+    DESKTOP_DIR=""
+    if [ -n "$TARGET_HOME" ] && [ -d "$TARGET_HOME/Desktop" ]; then
+        DESKTOP_DIR="$TARGET_HOME/Desktop"
+    fi
 else
     PREFIX="$HOME/.local"
     BIN_DIR="$PREFIX/bin"
@@ -148,18 +151,16 @@ else
     DATA_DIR="$PREFIX/share/volsa2"
     UDEV_DIR=""
     
-    # User desktop directory detection
+    # User desktop directory detection (supports localized desktop folders or no desktop folder)
+    DESKTOP_DIR=""
     if [ -d "$HOME/Desktop" ]; then
         DESKTOP_DIR="$HOME/Desktop"
     elif command -v xdg-user-dir >/dev/null 2>&1; then
         xdg_dir=$(xdg-user-dir DESKTOP 2>/dev/null || true)
-        if [ -n "$xdg_dir" ] && [ -d "$xdg_dir" ] && [ "$xdg_dir" != "$HOME" ]; then
+        xdg_dir="${xdg_dir%/}"
+        if [ -n "$xdg_dir" ] && [ -d "$xdg_dir" ] && [ "$xdg_dir" != "${HOME%/}" ]; then
             DESKTOP_DIR="$xdg_dir"
-        else
-            DESKTOP_DIR="$HOME/Desktop"
         fi
-    else
-        DESKTOP_DIR="$HOME/Desktop"
     fi
 fi
 
@@ -238,7 +239,9 @@ echo -e "${BOLD}Installation Mode:${RESET} $INSTALL_MODE"
 echo -e "${BOLD}Target Binary Directory:${RESET} $BIN_DIR"
 echo -e "${BOLD}Desktop Entry Directory:${RESET} $APP_DIR"
 echo -e "${BOLD}Application Icon Directory:${RESET} $ICON_DIR"
-[ -n "$DESKTOP_DIR" ] && echo -e "${BOLD}User Desktop Directory:${RESET} $DESKTOP_DIR"
+if [ -n "$DESKTOP_DIR" ] && [ -d "$DESKTOP_DIR" ]; then
+    echo -e "${BOLD}User Desktop Directory:${RESET} $DESKTOP_DIR"
+fi
 echo ""
 
 # Ensure required directories exist
@@ -342,7 +345,7 @@ chmod +x "$APP_DIR/volsa2.desktop"
 echo -e "${GREEN}  ✓ Application menu launcher created: $APP_DIR/volsa2.desktop${RESET}"
 
 # 2. Install to Desktop if Desktop folder exists
-if [ -d "$DESKTOP_DIR" ]; then
+if [ -n "$DESKTOP_DIR" ] && [ -d "$DESKTOP_DIR" ]; then
     DESKTOP_FILE="$DESKTOP_DIR/VolSa2.desktop"
     echo "$DESKTOP_CONTENT" > "$DESKTOP_FILE"
     chmod +x "$DESKTOP_FILE"
@@ -357,6 +360,8 @@ if [ -d "$DESKTOP_DIR" ]; then
         chown "$TARGET_USER:$TARGET_USER" "$DESKTOP_FILE" 2>/dev/null || true
     fi
     echo -e "${GREEN}  ✓ Desktop executable shortcut created: $DESKTOP_FILE${RESET}"
+else
+    echo -e "  • No desktop directory found (skipping desktop shortcut)"
 fi
 
 # Refresh system desktop and icon caches if tools are present
@@ -412,7 +417,9 @@ echo -e "${GREEN}${BOLD}========================================================
 echo -e "${GREEN}${BOLD}       VolSa 2 Installation Completed Successfully!       ${RESET}"
 echo -e "${GREEN}${BOLD}==========================================================${RESET}"
 echo ""
-echo -e "• ${BOLD}Desktop Executable:${RESET}  $DESKTOP_DIR/VolSa2.desktop"
+if [ -n "$DESKTOP_DIR" ] && [ -f "$DESKTOP_DIR/VolSa2.desktop" ]; then
+    echo -e "• ${BOLD}Desktop Executable:${RESET}  $DESKTOP_DIR/VolSa2.desktop"
+fi
 echo -e "• ${BOLD}Application Launcher:${RESET} $APP_DIR/volsa2.desktop"
 echo -e "• ${BOLD}Application Icon:${RESET}     $TARGET_ICON_FILE"
 echo -e "• ${BOLD}GUI Executable:${RESET}        $BIN_DIR/volsa2-gui"
