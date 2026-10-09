@@ -43,7 +43,11 @@ void WaveformWidget::clear() {
 }
 
 void WaveformWidget::setPlayheadPosition(double normalized_pos) {
-    playhead_pos_ = std::clamp(normalized_pos, 0.0, 1.0);
+    if (normalized_pos < 0.0) {
+        playhead_pos_ = -1.0;
+    } else {
+        playhead_pos_ = std::clamp(normalized_pos, 0.0, 1.0);
+    }
     update();
 }
 
@@ -57,7 +61,7 @@ void WaveformWidget::setSelection(size_t start_sample, size_t end_sample) {
     size_t s = std::min(start_sample, samples_.size());
     size_t e = std::min(end_sample, samples_.size());
     if (s > e) std::swap(s, e);
-    bool new_has_sel = (s > 0 || e < samples_.size());
+    bool new_has_sel = (s < e);
     if (s == sel_start_ && e == sel_end_ && has_selection_ == new_has_sel) {
         return;
     }
@@ -114,16 +118,7 @@ void WaveformWidget::mousePressEvent(QMouseEvent* event) {
     int x = static_cast<int>(event->position().x());
     size_t clicked_sample = pixelToSample(x);
 
-    // If slice markers exist, check if a slice was clicked
-    if (!slice_markers_.empty()) {
-        for (size_t s = 0; s + 1 < slice_markers_.size(); ++s) {
-            if (clicked_sample >= slice_markers_[s] && clicked_sample < slice_markers_[s + 1]) {
-                emit sliceClicked(static_cast<int>(s));
-                break;
-            }
-        }
-    }
-
+    // 1. If selection handles exist, check if user clicked on start/end marker to drag
     if (selection_enabled_ && has_selection_) {
         int x_start = sampleToPixel(sel_start_);
         int x_end = sampleToPixel(sel_end_);
@@ -135,6 +130,18 @@ void WaveformWidget::mousePressEvent(QMouseEvent* event) {
         if (std::abs(x - x_end) <= 6) {
             drag_mode_ = DragMode::DragEndMarker;
             return;
+        }
+    }
+
+    // 2. If slice markers exist, check if a slice was clicked
+    if (!slice_markers_.empty()) {
+        for (size_t s = 0; s + 1 < slice_markers_.size(); ++s) {
+            if (clicked_sample >= slice_markers_[s] &&
+                (clicked_sample < slice_markers_[s + 1] || (s + 2 == slice_markers_.size() && clicked_sample <= slice_markers_[s + 1]))) {
+                drag_mode_ = DragMode::None;
+                emit sliceClicked(static_cast<int>(s));
+                return;
+            }
         }
     }
 

@@ -170,24 +170,30 @@ SampleChopperDialog::SampleChopperDialog(const std::vector<volsa2::SampleHeader>
     // Connections
     connect(slice_type_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SampleChopperDialog::onSliceModeChanged);
     connect(slice_list_, &QListWidget::itemClicked, this, &SampleChopperDialog::onSliceItemClicked);
+    connect(slice_list_, &QListWidget::currentRowChanged, this, &SampleChopperDialog::selectSlice);
     connect(waveform_widget_, &WaveformWidget::selectionChanged, this, &SampleChopperDialog::onWaveformSelectionChanged);
     connect(waveform_widget_, &WaveformWidget::sliceClicked, this, [this](int s) {
-        if (s >= 0 && s < slice_list_->count()) {
-            slice_list_->setCurrentRow(s);
+        if (s >= 0 && static_cast<size_t>(s) < current_slice_points_.size()) {
+            selectSlice(s);
             onPlaySelectedSlice();
         }
     });
     connect(&audio_player_, &AlsaAudioPlayer::positionChanged, this, [this](double norm_pos) {
-        size_t s = static_cast<size_t>(std::clamp(std::round(start_crop_spin_->value() * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(original_samples_.size())));
-        size_t e = static_cast<size_t>(std::clamp(std::round(end_crop_spin_->value() * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(original_samples_.size())));
-        if (e > s && !original_samples_.empty()) {
-            double full_norm = (static_cast<double>(s) + norm_pos * (e - s)) / original_samples_.size();
-            waveform_widget_->setPlayheadPosition(full_norm);
+        if (is_playing_slice_) {
+            size_t s = static_cast<size_t>(std::clamp(std::round(start_crop_spin_->value() * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(original_samples_.size())));
+            size_t e = static_cast<size_t>(std::clamp(std::round(end_crop_spin_->value() * volsa2::VOLCA_SAMPLERATE), 0.0, static_cast<double>(original_samples_.size())));
+            if (e > s && !original_samples_.empty()) {
+                double full_norm = (static_cast<double>(s) + norm_pos * (e - s)) / original_samples_.size();
+                waveform_widget_->setPlayheadPosition(full_norm);
+            } else {
+                waveform_widget_->setPlayheadPosition(norm_pos);
+            }
         } else {
             waveform_widget_->setPlayheadPosition(norm_pos);
         }
     });
     connect(&audio_player_, &AlsaAudioPlayer::playbackFinished, this, [this]() {
+        is_playing_slice_ = false;
         btn_play_full_->setText("Play Full Audio");
         waveform_widget_->setPlayheadPosition(-1.0);
     });
@@ -223,9 +229,17 @@ void SampleChopperDialog::onRecomputeSlices() {
     waveform_widget_->setSliceMarkers(markers);
 
     updateSliceList();
+
+    if (!current_slice_points_.empty()) {
+        selectSlice(0);
+    } else {
+        waveform_widget_->clearSelection();
+        btn_play_slice_->setEnabled(false);
+    }
 }
 
 void SampleChopperDialog::updateSliceList() {
+    slice_list_->blockSignals(true);
     slice_list_->clear();
     for (size_t i = 0; i < current_slice_points_.size(); ++i) {
         const auto& sp = current_slice_points_[i];
@@ -240,24 +254,35 @@ void SampleChopperDialog::updateSliceList() {
                                 .arg(QString::number(dur, 'f', 2));
         slice_list_->addItem(item_text);
     }
-    btn_play_slice_->setEnabled(slice_list_->count() > 0);
+    slice_list_->blockSignals(false);
+    btn_play_slice_->setEnabled(slice_list_->count() > 0 && slice_list_->currentRow() >= 0);
+}
+
+void SampleChopperDialog::selectSlice(int row) {
+    if (row < 0 || static_cast<size_t>(row) >= current_slice_points_.size()) return;
+
+    slice_list_->blockSignals(true);
+    slice_list_->setCurrentRow(row);
+    slice_list_->blockSignals(false);
+
+    const auto& sp = current_slice_points_[row];
+    double s_sec = static_cast<double>(sp.start_sample) / volsa2::VOLCA_SAMPLERATE;
+    double e_sec = static_cast<double>(sp.end_sample) / volsa2::VOLCA_SAMPLERATE;
+
+    start_crop_spin_->blockSignals(true);
+    end_crop_spin_->blockSignals(true);
+    start_crop_spin_->setValue(s_sec);
+    end_crop_spin_->setValue(e_sec);
+    start_crop_spin_->blockSignals(false);
+    end_crop_spin_->blockSignals(false);
+
+    waveform_widget_->setSelection(sp.start_sample, sp.end_sample);
+    btn_play_slice_->setEnabled(true);
 }
 
 void SampleChopperDialog::onSliceItemClicked(QListWidgetItem* item) {
-    int row = slice_list_->row(item);
-    if (row >= 0 && static_cast<size_t>(row) < current_slice_points_.size()) {
-        const auto& sp = current_slice_points_[row];
-        double s_sec = static_cast<double>(sp.start_sample) / volsa2::VOLCA_SAMPLERATE;
-        double e_sec = static_cast<double>(sp.end_sample) / volsa2::VOLCA_SAMPLERATE;
-        start_crop_spin_->blockSignals(true);
-        end_crop_spin_->blockSignals(true);
-        start_crop_spin_->setValue(s_sec);
-        end_crop_spin_->setValue(e_sec);
-        start_crop_spin_->blockSignals(false);
-        end_crop_spin_->blockSignals(false);
-
-        waveform_widget_->setSelection(sp.start_sample, sp.end_sample);
-        btn_play_slice_->setEnabled(true);
+    if (item) {
+        selectSlice(slice_list_->row(item));
     }
 }
 
@@ -268,6 +293,7 @@ void SampleChopperDialog::onPlaySelectedSlice() {
     const auto& sp = current_slice_points_[row];
     auto slice_audio = volsa2::crop_audio(original_samples_, sp.start_sample, sp.end_sample, true);
 
+    is_playing_slice_ = true;
     audio_player_.stop();
     audio_player_.play(slice_audio, volsa2::VOLCA_SAMPLERATE, 0.0);
 }
@@ -279,6 +305,7 @@ void SampleChopperDialog::onPlayFull() {
         btn_play_full_->setText("Play Full Audio");
         waveform_widget_->setPlayheadPosition(-1.0);
     } else {
+        is_playing_slice_ = false;
         btn_play_full_->setText("Stop");
         audio_player_.play(original_samples_, volsa2::VOLCA_SAMPLERATE, 0.0);
     }

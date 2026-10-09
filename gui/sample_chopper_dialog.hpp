@@ -53,6 +53,7 @@ private slots:
     void onSliceModeChanged();
     void onRecomputeSlices();
     void onSliceItemClicked(QListWidgetItem* item);
+    void selectSlice(int row);
     void onPlaySelectedSlice();
     void onPlayFull();
     void onAutoTrimSilence();
@@ -63,6 +64,7 @@ private slots:
 
 private:
     void updateSliceList();
+    bool is_playing_slice_{false};
 
     std::vector<volsa2::SampleHeader> current_slots_;
     std::vector<int16_t> original_samples_;
