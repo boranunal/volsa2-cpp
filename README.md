@@ -1,6 +1,6 @@
 # VolSa 2 C++
 
-This project is a C++20 translation of the volsa2 Rust project and includes Qt 6 GUI for the **KORG Volca Sample 2** over ALSA MIDI Sequencer.
+This project is a C++20 translation of the [volsa2](https://github.com/00nktk/volsa2) Rust project and includes Qt 6 GUI for the **KORG Volca Sample 2** over ALSA MIDI Sequencer.
 
 The Librarian software does not have a Linux version, the volsa2 project had no GUI and the volsa2gui project was buggy. This project is translated from the volsa2 Rust project to C++20 by AI. Then a Qt6 GUI application is written again by AI. Basic functional tests are successful but use this program at your own risk. Please report the bugs you found.
 
